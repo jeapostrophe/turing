@@ -648,4 +648,49 @@ Proof.
   apply Pq0.
 Qed.
 
+Corollary UnaryAddition_Correct:
+  forall t a t',
+    (Pre ConsumeFirstNumber) t a ->
+    Step_star ConsumeFirstNumber t HALT t' ->
+    (Pre HALT) t' a.
+Proof.
+  intros t a t' P SS.
+  eapply Correct.
+  apply P.
+  unfold F. simpl. auto.
+  auto.
+Qed.
+  
+Ltac once :=
+  eapply Step_star_step; [ eapply Step_delta; simpl; reflexivity | simpl ].
+Ltac run :=
+  eexists; repeat once; apply Step_star_refl.
 
+Example UnaryAddition_Runs_on_2Plus3:
+ exists t',
+   Step_star ConsumeFirstNumber 
+             (tape_input GT (Mark :: Mark :: Add :: Mark :: Mark :: Mark :: nil))
+             HALT
+             t'. 
+Proof. run. Qed.
+
+Corollary UnaryAddition_Correct_on_2Plus3:
+  forall t',
+    Step_star ConsumeFirstNumber 
+              (tape_input GT (Mark :: Mark :: Add :: Mark :: Mark :: Mark :: nil))
+              HALT
+              t'
+    ->
+    (Pre HALT) t' 5.
+Proof.
+  intros t'.
+  eapply UnaryAddition_Correct.
+
+  simpl. gt_all.
+  intuition.
+  exists 2. exists 3.
+  exists (Mark :: Mark :: nil).
+  exists (Mark :: Mark :: Mark :: nil).
+  simpl. gt_all.
+  intuition.
+Qed.
