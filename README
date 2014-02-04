@@ -2,6 +2,9 @@
 TODO:
 
 - Separate use and theory once I figure out how to make Module +
-Inductive work correctly
+  Inductive work correctly
 
 - Discover some more useful theorems for building these things.
+
+- Generalize (Pre q t a) to have a different 'a' between states for
+  libraries and framing.
