@@ -245,21 +245,6 @@ Inductive A : Set :=
 | A_Num : nat -> A.
 Hint Constructors A.
 
-Fixpoint marks_to_number (l:list GT) : option nat :=
-match l with
-  | cons Mark l =>
-    match marks_to_number l with
-      | None => 
-        None
-      | Some n =>
-        Some (S n)
-    end
-  | nil =>
-    Some 0
-  | _ =>
-    None
-end.
-
 Fixpoint split_at A (A_dec:forall (x y:A), { x = y } + { x <> y }) (x:A) (l:list A) :=
 match l with
   | nil =>
@@ -277,26 +262,6 @@ match l with
       end
 end.
 
-Definition parse_A (t:Tape GT) : option A :=
-  let (t_before, t_after) := t in
-  match (split_at GT GT_dec Add t_after) with
-    | inl ( before_add, after_add ) =>
-      match (marks_to_number (rev (before_add ++ t_before))) with
-        | None => None
-        | Some l =>
-          match (marks_to_number after_add) with
-            | None => None
-            | Some r =>
-              Some (A_Add l r)
-          end
-      end            
-    | inr tt =>
-      match (marks_to_number (t_before ++ t_after)) with
-        | None => None
-        | Some n => Some (A_Num n)
-      end
-  end.
-
 Ltac gteq r :=
   destruct (GT_dec r r) as [GOOD|BAD]; [ clear GOOD | congruence ].
 Ltac gtneq x y :=
@@ -306,19 +271,6 @@ Ltac gt_all :=
   gtneq Mark Add; gtneq Mark Blank;
   gtneq Blank Add; gtneq Blank Mark;
   gtneq Add Blank; gtneq Add Mark.
-
-Example parse_A0 : 
-  parse_A (tape_input GT (Add :: nil)) = Some (A_Add 0 0).
-Proof. simpl. gteq Add. auto. Qed.
-Example parse_A1 : 
-  parse_A (tape_input GT (Mark :: Add :: Mark :: nil)) = Some (A_Add 1 1).
-Proof. simpl. gteq Add. gtneq Add Mark. auto. Qed.
-Example parse_A2 : 
-  parse_A (tape_input GT (Mark :: Mark :: Add :: Mark :: nil)) = Some (A_Add 2 1).
-Proof. simpl. gteq Add. gtneq Add Mark. auto. Qed.
-Example parse_A3 : 
-  parse_A ((Mark :: nil), (Mark :: Add :: Mark :: nil)) = Some (A_Add 2 1).
-Proof. simpl. gteq Add. gtneq Add Mark. auto. Qed.
 
 Fixpoint build_list A n (a:A) :=
 match n with
@@ -333,16 +285,11 @@ match q with
 | ConsumeFirstNumber =>
   fun t n =>
     let (t_before, t_after) := t in
-       count_occ GT_dec t_before Add = 0
-    /\ count_occ GT_dec t_after Add = 1
-    /\ count_occ GT_dec t_before Blank = 0
-    /\ count_occ GT_dec t_after Blank = 0
-    /\ (exists l r t_after_left t_after_right,
-          split_at GT GT_dec Add t_after = inl (t_after_left, t_after_right)
-          /\ count_occ GT_dec (t_before ++ t_after_left) Mark = l
-          /\ count_occ GT_dec t_after_right Mark = r
-          /\ n = l + r
-          /\ n >= 2)
+    exists lb la r,
+      t_before = build_list GT lb Mark
+      /\ t_after = build_list GT la Mark ++ (Add :: build_list GT r Mark)
+      /\ n = (lb + la) + r
+      /\ n >= 2
 | ConsumeSecondNumber =>
   fun t n =>
     tape_list GT t = (build_list GT (S n) Mark)
@@ -373,34 +320,6 @@ match q with
     /\ t_after = (build_list GT n Mark) ++ Blank :: Blank :: nil
     /\ n >= 2
 end.
-
-Theorem count_occ_app :
-  forall A A_dec (x y:list A) a,
-    count_occ A_dec (x ++ y) a =
-    count_occ A_dec x a + count_occ A_dec y a.
-Proof.
-  induction x as [|x xs]; simpl; intros y a.
-  auto.
-  destruct (A_dec x a); rewrite IHxs; auto.
-Qed.
-
-Lemma count_occ_GT:
-  forall l,
-    count_occ GT_dec l Add = 0 ->
-    count_occ GT_dec l Blank = 0 ->
-    forall n,
-      count_occ GT_dec l Mark = n ->
-      l = build_list GT n Mark.
-Proof.
-  induction l as [|x l]; simpl; intros EQa EQb n EQm.
-
-  subst. auto.
-
-  destruct x; gt_all; try congruence.
-  destruct n as [|n]; try congruence.
-  simpl.
-  erewrite IHl; auto.
-Qed.
 
 Lemma cons_build_list:
   forall A n x,
@@ -512,41 +431,25 @@ Proof.
 
   (* Case 1: ConsumeFirst -> ConsumeFirst *)
   destruct t as [t_before t_after].
-  destruct Pqt as [ Pqt_bA [ Pqt_aA [ Pqt_bB [ Pqt_aB [ l [r [t_after_left [t_after_right [ Pqt_EQ [ Pqt_b'M [ Pqt_a'M EQa ] ] ]]]] ] ] ] ] ].
-  subst.
-  destruct t_after as [|t_after_hd t_after_tl]; simpl in *. congruence.
-  subst. gtneq Mark Add. gtneq Mark Blank. gtneq Add Mark. gteq Mark.
-  repeat constructor; auto.
-  remember (split_at GT GT_dec Add t_after_tl) as TMP.
-  destruct TMP as [[t_after_tl_left t_after_tl_right]|]; try congruence.
-  inversion Pqt_EQ. subst. clear Pqt_EQ.
-  exists (count_occ GT_dec (t_before ++ Mark :: t_after_tl_left) Mark).
-  exists (count_occ GT_dec t_after_right Mark).
-  exists t_after_tl_left. exists t_after_right.
-  split; auto. split; auto.
-  rewrite count_occ_app.
-  rewrite count_occ_app.
-  rewrite count_occ_cons_eq; auto.
+  destruct Pqt as [lb [la [r [EQb [EQa [EQn Ln]]]]]].
+  subst a t_before t_after.
+  simpl in *.
+  destruct la as [|la]; simpl in *. inversion Heqg.
+  exists (S lb). exists la. exists r.
+  simpl. intuition.
 
   (* Case 2: ConsumeFirst -> ConsumeSecond  *)
   destruct t as [t_before t_after].
-  destruct Pqt as [ Pqt_bA [ Pqt_aA [ Pqt_bB [ Pqt_aB [ l [r [t_after_left [t_after_right [ Pqt_EQ [ Pqt_b'M [ Pqt_a'M [EQa LEq] ] ] ]]]] ] ] ] ] ].
-  destruct t_after as [|t_after_hd t_after_tl];
-    simpl in *. 
-  congruence.
-  subst t_after_hd. gt_all.
-  inversion Pqt_EQ. subst t_after_left t_after_right. clear Pqt_EQ.
-  split; auto.
-  inversion Pqt_aA. rename H0 into Pqt_aA'.
-  rewrite (count_occ_GT t_after_tl Pqt_aA' Pqt_aB r).
-  rewrite app_nil_r in *.
-  rewrite (count_occ_GT t_before Pqt_bA Pqt_bB l); auto.
+  destruct Pqt as [lb [la [r [EQb [EQa [EQn Ln]]]]]].
+  subst a t_before t_after.
+  simpl in *.
+  destruct la as [|la]; simpl in *; try (inversion Heqg).
+  rewrite plus_0_r.
   rewrite build_list_rev.
   rewrite cons_build_list.
   rewrite build_list_snoc.
   rewrite build_list_app.
-  replace (S l + r) with (S a); try omega. auto.
-  auto.
+  intuition.
 
   (* Case 3: ConsumeSecond -> ConsumeSecond *)
   destruct t as [t_before t_after].
@@ -686,11 +589,7 @@ Proof.
   intros t'.
   eapply UnaryAddition_Correct.
 
-  simpl. gt_all.
-  intuition.
-  exists 2. exists 3.
-  exists (Mark :: Mark :: nil).
-  exists (Mark :: Mark :: Mark :: nil).
-  simpl. gt_all.
-  intuition.
+  simpl. 
+  exists 0. exists 2. exists 3.
+  simpl. intuition.
 Qed.
