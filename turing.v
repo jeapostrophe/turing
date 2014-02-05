@@ -240,22 +240,19 @@ Inductive Step_star : QT -> (Tape GT) -> QT -> (Tape GT) -> Prop :=
       Step_star q t q'' t''.
 Hint Constructors Step_star.
 
-Fixpoint split_at A (A_dec:forall (x y:A), { x = y } + { x <> y }) (x:A) (l:list A) :=
-match l with
-  | nil =>
-    inr tt
-  | cons y l =>
-    if A_dec x y then
-      inl (nil, l)
-    else
-      let r := split_at A A_dec x l in
-      match r with
-        | inr _ => r
-        | inl ba =>
-          let (b, a) := ba in
-          inl ( y :: b, a )
-      end
-end.
+Theorem Step_star_trans:
+    forall q t q' t' q'' t'',
+      Step_star q t q' t' ->
+      Step_star q' t' q'' t'' ->
+      Step_star q t q'' t''.
+Proof.
+  intros q t q' t' q'' t'' SSq SSq'.
+  induction SSq.
+  auto.
+  eapply Step_star_step.
+  apply H.
+  auto.
+Qed.
 
 Ltac gteq r :=
   destruct (GT_dec r r) as [GOOD|BAD]; [ clear GOOD | congruence ].
@@ -286,7 +283,11 @@ match q with
       /\ n = (lb + la) + r
 | ConsumeSecondNumber =>
   fun t n =>
-    tape_list GT t = (build_list GT (S n) Mark)
+    let (t_before, t_after) := t in
+    exists nb na,
+      t_before = build_list GT nb Mark
+      /\ t_after = build_list GT na Mark
+      /\ S n = nb + na
 | OverrideLastMark =>
   fun t n =>
     let (t_before, t_after) := t in
@@ -433,43 +434,27 @@ Proof.
   subst a t_before t_after.
   simpl in *.
   destruct la as [|la]; simpl in *; try (inversion Heqg).
-  rewrite plus_0_r.
-  rewrite build_list_rev.
-  rewrite cons_build_list.
-  rewrite build_list_snoc.
-  rewrite build_list_app.
+  exists (S lb). exists r. simpl.
   intuition.
 
   (* Case 3: ConsumeSecond -> ConsumeSecond *)
   destruct t as [t_before t_after].
-  rename Pqt into EQt.
-  destruct t_after as [|t_after_hd t_after_tl]; simpl in *; subst.
-  inversion Heqg.
-  rewrite <- EQt. rewrite <- app_assoc. auto.
+  destruct Pqt as [nb [na [EQb [EQa EQn]]]].
+  subst. simpl in *.
+  destruct na as [|na]; simpl in *. inversion Heqg.
+  exists (S nb). exists na.
+  simpl. intuition.
 
   (* Case 4: ConsumeSecond -> OverrideLast *)
   destruct t as [t_before t_after].  
-  rename Pqt into EQ. 
-  destruct t_after as [|t_after_hd t_after_tl]; simpl in *; subst.
-  destruct t_before as [|t_before_hd t_before_tl]; simpl in *; subst.
+  destruct Pqt as [nb [na [EQb [EQa EQn]]]].
+  subst. simpl in *.
+  destruct na as [|na]; simpl in *.
+  destruct nb as [|nb]; simpl in *.
+  omega.
+  inversion EQn. subst.
+  rewrite plus_0_r. intuition.
   congruence.
-  clear Heqg.
-  rewrite app_nil_r in *.
-  rewrite cons_build_list in EQ.
-  replace (S a) with (a + 1) in EQ; try omega.
-  rewrite <- build_list_app in EQ.
-  simpl in EQ.
-  apply app_inj_tail in EQ.
-  destruct EQ as [EQ0 EQ1].
-  rewrite EQ1.
-  rewrite <- build_list_rev in EQ0.
-  apply rev_eq_eq in EQ0. auto.
-
-  assert False; try tauto.
-  apply (In_not_eq GT Blank _ _ EQ). 
-  apply in_or_app. right. simpl. left. auto.
-  simpl. intros [F|F]; try congruence.
-  apply (build_list_not_In GT a Blank Mark); auto. congruence.
   
   (* Case 5: OverrideLast -> SeekBeginning *)
   destruct t as [t_before t_after].
@@ -602,20 +587,92 @@ Proof.
   intuition.
 Qed.
 
-(* XXX It would be nice to prove that this NPlusM input always halts,
-but I don't think normal induction will work on Step_star. *)
+Definition Pre_impl_Next q q' :=
+  forall a t,
+    Pre q t a ->
+    exists t',
+      Step_star q t q' t'.
+Hint Unfold Pre_impl_Next.
+
+Lemma UnaryAddition_Halts_1:
+  Pre_impl_Next ConsumeFirstNumber ConsumeSecondNumber.
+Proof.
+  intros a t P.
+  simpl in P. destruct t as [t_before t_after].
+  destruct P as [lb [la [r [EQb [EQa EQn]]]]].
+  subst. generalize lb r. clear lb r.
+  induction la as [|la]; intros lb r; simpl.
+
+  eexists. once. apply Step_star_refl.
+
+  destruct (IHla (S lb) r) as [t' SS].
+  eexists. simpl in *. once. simpl. apply SS.
+Qed.
+
+Lemma UnaryAddition_Halts_2:
+  Pre_impl_Next ConsumeSecondNumber OverrideLastMark.
+Proof.
+  intros a t P. simpl in P.
+  destruct t as [t_before t_after].
+  destruct P as [nb [na [EQb [EQa EQn]]]]. subst.
+
+  generalize a nb EQn. clear a nb EQn.
+  induction na as [|na]; simpl; intros a nb EQn.
+
+  eexists. once. apply Step_star_refl.
+
+  destruct (IHna a (S nb)) as [t' SS].
+  omega. simpl in SS.
+  eexists. once. simpl. apply SS.
+Qed.
+
+Lemma UnaryAddition_Halts_3:
+  Pre_impl_Next OverrideLastMark SeekBeginning.
+Proof.
+  intros a t P. simpl in P.
+  destruct t as [t_before t_after].
+  destruct P as [EQb EQa]. subst.
+  eexists. once. apply Step_star_refl.
+Qed.
+
+Lemma UnaryAddition_Halts_4:
+  Pre_impl_Next SeekBeginning HALT.
+Proof.
+  intros a t P. simpl in P.
+  destruct t as [t_before t_after].
+
+  destruct P as [[l [r [EQb [EQa [EQn LE]]]]] | [EQb EQa]]; subst.
+
+  (* The left branch means that we go back to SeekBeginning, so I need
+  to use an inductive argument, but on what? *)
+
+  Focus 2.
+  eexists. once. simpl. apply Step_star_refl.
+Admitted.
 
 Lemma UnaryAddition_Halts:
-  forall n m,
+  forall a t,
+    Pre ConsumeFirstNumber t a ->
     exists t',
-      Step_star ConsumeFirstNumber 
-                (tape_input GT 
-                            ((build_list GT n Mark) 
-                               ++ Add :: (build_list GT m Mark)))
-                HALT
-                t'.
+      Step_star ConsumeFirstNumber t HALT t'.
 Proof.
-Admitted.
+  intros a t P.
+
+  Ltac UAH_step P t1 SS1 l :=
+    destruct (l _ _ P) as [t1 SS1];
+    apply (Step_star_impl _ _ _ _ SS1) in P.
+
+  UAH_step P t1 SS1 UnaryAddition_Halts_1.
+  UAH_step P t2 SS2 UnaryAddition_Halts_2.
+  UAH_step P t3 SS3 UnaryAddition_Halts_3.
+  UAH_step P t4 SS4 UnaryAddition_Halts_4.
+
+  exists t4.
+  eapply Step_star_trans. apply SS1.
+  eapply Step_star_trans. apply SS2.
+  eapply Step_star_trans. apply SS3.
+  apply SS4.
+Qed.
 
 Theorem UnaryAddition_Correct:
   forall n m,
@@ -626,7 +683,12 @@ Theorem UnaryAddition_Correct:
       (Blank :: nil, ((build_list GT (n + m) Mark) ++ Blank :: Blank :: nil)).
 Proof.
   intros n m.
-  destruct (UnaryAddition_Halts n m) as [t' SS].
+  assert (Pre ConsumeFirstNumber (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark))) (n + m)) as P.
+
+  simpl. exists 0. exists n. exists m.
+  intuition.
+
+  destruct (UnaryAddition_Halts _ _ P) as [t' SS].
   replace (Blank :: nil, build_list GT (n + m) Mark ++ Blank :: Blank :: nil) with t'.
   auto.
   apply UnaryAddition_1st_to_last with (a:=n + m) in SS.
@@ -634,9 +696,6 @@ Proof.
   destruct t' as [t_before t_after].
   destruct SS as [EQb EQa].
   subst. auto.
-
-  simpl.
-  exists 0. exists n. exists m.
-  intuition.
+  auto.
 Qed.
 
