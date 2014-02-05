@@ -546,7 +546,7 @@ Proof.
   apply Pq0.
 Qed.
 
-Corollary UnaryAddition_Correct:
+Corollary UnaryAddition_1st_to_last:
   forall t a t',
     (Pre ConsumeFirstNumber) t a ->
     Step_star ConsumeFirstNumber t HALT t' ->
@@ -582,7 +582,7 @@ Corollary UnaryAddition_Correct_on_2Plus3:
     (Pre HALT) t' 5.
 Proof.
   intros t'.
-  eapply UnaryAddition_Correct.
+  eapply UnaryAddition_1st_to_last.
   simpl. 
   exists 0. exists 2. exists 3.
   simpl. intuition.
@@ -600,7 +600,7 @@ Theorem UnaryAddition_Correct_on_NPlusM:
     (Pre HALT) t' (n + m).
 Proof.
   intros n m t' LEn LEm SS.
-  eapply UnaryAddition_Correct; try apply SS.
+  eapply UnaryAddition_1st_to_last; try apply SS.
   simpl.
   exists 0. exists n. exists m.
   intuition.
@@ -608,3 +608,43 @@ Qed.
 
 (* XXX It would be nice to prove that this NPlusM input always halts,
 but I don't think normal induction will work on Step_star. *)
+
+Lemma UnaryAddition_Halts:
+  forall n m,
+    n >= 1 ->
+    m >= 1 ->
+    exists t',
+      Step_star ConsumeFirstNumber 
+                (tape_input GT 
+                            ((build_list GT n Mark) 
+                               ++ Add :: (build_list GT m Mark)))
+                HALT
+                t'.
+Proof.
+Admitted.
+
+Theorem UnaryAddition_Correct:
+  forall n m,
+    n >= 1 ->
+    m >= 1 ->
+    Step_star 
+      ConsumeFirstNumber 
+      (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
+      HALT
+      (Blank :: nil, ((build_list GT (n + m) Mark) ++ Blank :: Blank :: nil)).
+Proof.
+  intros n m LEn LEm.
+  destruct (UnaryAddition_Halts n m LEn LEm) as [t' SS].
+  replace (Blank :: nil, build_list GT (n + m) Mark ++ Blank :: Blank :: nil) with t'.
+  auto.
+  apply UnaryAddition_1st_to_last with (a:=n + m) in SS.
+  simpl in SS.
+  destruct t' as [t_before t_after].
+  destruct SS as [EQb [EQa LE]].
+  subst. auto.
+
+  simpl.
+  exists 0. exists n. exists m.
+  intuition.
+Qed.
+
