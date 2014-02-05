@@ -547,46 +547,6 @@ Ltac once :=
 Ltac run :=
   eexists; repeat once; apply Step_star_refl.
 
-Example UnaryAddition_Runs_on_2Plus3:
- exists t',
-   Step_star ConsumeFirstNumber 
-             (tape_input GT (Mark :: Mark :: Add :: Mark :: Mark :: Mark :: nil))
-             HALT
-             t'. 
-Proof. run. Qed.
-
-Corollary UnaryAddition_Correct_on_2Plus3:
-  forall t',
-    Step_star ConsumeFirstNumber 
-              (tape_input GT (Mark :: Mark :: Add :: Mark :: Mark :: Mark :: nil))
-              HALT
-              t'
-    ->
-    (Pre HALT) t' 5.
-Proof.
-  intros t'.
-  eapply UnaryAddition_1st_to_last.
-  simpl. 
-  exists 0. exists 2. exists 3.
-  simpl. intuition.
-Qed.
-
-Theorem UnaryAddition_Correct_on_NPlusM:
-  forall n m t',
-    Step_star ConsumeFirstNumber 
-              (tape_input GT ((build_list GT n Mark)
-                                ++ Add :: (build_list GT m Mark)))
-              HALT
-              t' ->
-    (Pre HALT) t' (n + m).
-Proof.
-  intros n m t' SS.
-  eapply UnaryAddition_1st_to_last; try apply SS.
-  simpl.
-  exists 0. exists n. exists m.
-  intuition.
-Qed.
-
 Definition Pre_impl_Next q q' :=
   forall a t,
     Pre q t a ->
@@ -643,12 +603,20 @@ Proof.
 
   destruct P as [[l [r [EQb [EQa [EQn LE]]]]] | [EQb EQa]]; subst.
 
-  (* The left branch means that we go back to SeekBeginning, so I need
-  to use an inductive argument, but on what? *)
+  destruct r as [|r]; try omega. clear LE. simpl.
+  generalize r. clear r.
+  induction l as [|l]; simpl; intros r.
 
-  Focus 2.
+  induction r as [|r]; simpl.
+  eexists. once. simpl. once. apply Step_star_refl.
+
+  eexists. once. simpl. once. simpl. apply Step_star_refl.
+
+  destruct (IHl (S r)) as [t' SS].
+  eexists. once. simpl. apply SS.
+
   eexists. once. simpl. apply Step_star_refl.
-Admitted.
+Qed.
 
 Lemma UnaryAddition_Halts:
   forall a t,
