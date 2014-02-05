@@ -240,11 +240,6 @@ Inductive Step_star : QT -> (Tape GT) -> QT -> (Tape GT) -> Prop :=
       Step_star q t q'' t''.
 Hint Constructors Step_star.
 
-Inductive A : Set :=
-| A_Add : nat -> nat -> A
-| A_Num : nat -> A.
-Hint Constructors A.
-
 Fixpoint split_at A (A_dec:forall (x y:A), { x = y } + { x <> y }) (x:A) (l:list A) :=
 match l with
   | nil =>
@@ -588,8 +583,28 @@ Corollary UnaryAddition_Correct_on_2Plus3:
 Proof.
   intros t'.
   eapply UnaryAddition_Correct.
-
   simpl. 
   exists 0. exists 2. exists 3.
   simpl. intuition.
 Qed.
+
+Theorem UnaryAddition_Correct_on_NPlusM:
+  forall n m t',
+    n >= 1 ->
+    m >= 1 ->
+    Step_star ConsumeFirstNumber 
+              (tape_input GT ((build_list GT n Mark)
+                                ++ Add :: (build_list GT m Mark)))
+              HALT
+              t' ->
+    (Pre HALT) t' (n + m).
+Proof.
+  intros n m t' LEn LEm SS.
+  eapply UnaryAddition_Correct; try apply SS.
+  simpl.
+  exists 0. exists n. exists m.
+  intuition.
+Qed.
+
+(* XXX It would be nice to prove that this NPlusM input always halts,
+but I don't think normal induction will work on Step_star. *)
