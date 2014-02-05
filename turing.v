@@ -284,17 +284,14 @@ match q with
       t_before = build_list GT lb Mark
       /\ t_after = build_list GT la Mark ++ (Add :: build_list GT r Mark)
       /\ n = (lb + la) + r
-      /\ n >= 2
 | ConsumeSecondNumber =>
   fun t n =>
     tape_list GT t = (build_list GT (S n) Mark)
-    /\ n >= 2
 | OverrideLastMark =>
   fun t n =>
     let (t_before, t_after) := t in
      t_before = (build_list GT n Mark)
      /\ t_after = (Mark :: Blank :: nil)
-     /\ n >= 2
 | SeekBeginning =>
   fun t n =>
     let (t_before, t_after) := t in
@@ -302,18 +299,15 @@ match q with
       t_before = (build_list GT l Mark)
       /\ t_after = ((build_list GT r Mark) ++ Blank :: Blank :: nil)
       /\ n = l + r
-      /\ r >= 1
-      /\ n >= 2)
+      /\ r >= 1)
     \/
     ( t_before = nil
-      /\ t_after = Blank :: ((build_list GT n Mark) ++ Blank :: Blank :: nil)
-      /\ n >= 2)
+      /\ t_after = Blank :: ((build_list GT n Mark) ++ Blank :: Blank :: nil))
 | HALT =>
   fun t n =>
     let (t_before, t_after) := t in
        t_before = Blank :: nil
     /\ t_after = (build_list GT n Mark) ++ Blank :: Blank :: nil
-    /\ n >= 2
 end.
 
 Lemma cons_build_list:
@@ -426,7 +420,7 @@ Proof.
 
   (* Case 1: ConsumeFirst -> ConsumeFirst *)
   destruct t as [t_before t_after].
-  destruct Pqt as [lb [la [r [EQb [EQa [EQn Ln]]]]]].
+  destruct Pqt as [lb [la [r [EQb [EQa EQn]]]]].
   subst a t_before t_after.
   simpl in *.
   destruct la as [|la]; simpl in *. inversion Heqg.
@@ -435,7 +429,7 @@ Proof.
 
   (* Case 2: ConsumeFirst -> ConsumeSecond  *)
   destruct t as [t_before t_after].
-  destruct Pqt as [lb [la [r [EQb [EQa [EQn Ln]]]]]].
+  destruct Pqt as [lb [la [r [EQb [EQa EQn]]]]].
   subst a t_before t_after.
   simpl in *.
   destruct la as [|la]; simpl in *; try (inversion Heqg).
@@ -448,14 +442,14 @@ Proof.
 
   (* Case 3: ConsumeSecond -> ConsumeSecond *)
   destruct t as [t_before t_after].
-  destruct Pqt as [ EQt LEn ].
+  rename Pqt into EQt.
   destruct t_after as [|t_after_hd t_after_tl]; simpl in *; subst.
   inversion Heqg.
   rewrite <- EQt. rewrite <- app_assoc. auto.
 
   (* Case 4: ConsumeSecond -> OverrideLast *)
   destruct t as [t_before t_after].  
-  destruct Pqt as [EQ LE]. 
+  rename Pqt into EQ. 
   destruct t_after as [|t_after_hd t_after_tl]; simpl in *; subst.
   destruct t_before as [|t_before_hd t_before_tl]; simpl in *; subst.
   congruence.
@@ -471,7 +465,7 @@ Proof.
   rewrite <- build_list_rev in EQ0.
   apply rev_eq_eq in EQ0. auto.
 
-  clear LE. assert False; try tauto.
+  assert False; try tauto.
   apply (In_not_eq GT Blank _ _ EQ). 
   apply in_or_app. right. simpl. left. auto.
   simpl. intros [F|F]; try congruence.
@@ -479,22 +473,26 @@ Proof.
   
   (* Case 5: OverrideLast -> SeekBeginning *)
   destruct t as [t_before t_after].
-  destruct Pqt as [EQb [EQa LE]].
+  destruct Pqt as [EQb EQa].
   subst t_before t_after. simpl in *. clear Heqg.
-  destruct a as [|a]; try omega.
-  simpl in *. left. exists a. exists 1. simpl.
+  destruct a as [|a]; simpl in *.
+
+  right. auto.
+
+  left. exists a. exists 1. simpl.
   intuition; omega.
 
   (* Case 6: SeekBeginning -> SeekBeginning *)
   destruct t as [t_before t_after].
-  destruct Pqt as [[l [r [EQb [EQa [EQn [LEr LEn]]]]]] | [EQb [EQa LEn]]];
+  destruct Pqt as [[l [r [EQb [EQa [EQn LEa]]]]] | [EQb EQa]];
     subst t_before t_after;
     simpl in *.
 
-  destruct r as [|r]; try omega.
-  simpl in *.
-  destruct l as [|l]; simpl in *.
+  destruct r as [|r]; simpl in *.
+  omega.
 
+  destruct l as [|l]; simpl in *.
+  
   right. subst a. simpl. intuition.
 
   left. exists l. exists (S (S r)). simpl. intuition.
@@ -503,16 +501,16 @@ Proof.
 
   (* Case 7: SeekBeginning -> HALT *)
   destruct t as [t_before t_after].  
-  destruct Pqt as [[l [r [EQb [EQa [EQn [LEr LEn]]]]]] | [EQb [EQa LEn]]].
+  destruct Pqt as [[l [r [EQb [EQa [EQn LEa]]]]] | [EQb EQa]].
   subst a t_before t_after.
-  destruct r as [|r]; try omega.
-  simpl in *. inversion Heqg.
+  destruct r as [|r]; simpl in *.
+
+  omega.
+  inversion Heqg.
 
   subst t_before t_after.
   simpl in *.
-  destruct a as [|a]; try omega.
-  simpl in *.
-  intuition.
+  auto.
 Qed.
 
 Lemma Step_star_impl:
@@ -590,8 +588,6 @@ Qed.
 
 Theorem UnaryAddition_Correct_on_NPlusM:
   forall n m t',
-    n >= 1 ->
-    m >= 1 ->
     Step_star ConsumeFirstNumber 
               (tape_input GT ((build_list GT n Mark)
                                 ++ Add :: (build_list GT m Mark)))
@@ -599,7 +595,7 @@ Theorem UnaryAddition_Correct_on_NPlusM:
               t' ->
     (Pre HALT) t' (n + m).
 Proof.
-  intros n m t' LEn LEm SS.
+  intros n m t' SS.
   eapply UnaryAddition_1st_to_last; try apply SS.
   simpl.
   exists 0. exists n. exists m.
@@ -611,8 +607,6 @@ but I don't think normal induction will work on Step_star. *)
 
 Lemma UnaryAddition_Halts:
   forall n m,
-    n >= 1 ->
-    m >= 1 ->
     exists t',
       Step_star ConsumeFirstNumber 
                 (tape_input GT 
@@ -625,22 +619,20 @@ Admitted.
 
 Theorem UnaryAddition_Correct:
   forall n m,
-    n >= 1 ->
-    m >= 1 ->
     Step_star 
       ConsumeFirstNumber 
       (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
       HALT
       (Blank :: nil, ((build_list GT (n + m) Mark) ++ Blank :: Blank :: nil)).
 Proof.
-  intros n m LEn LEm.
-  destruct (UnaryAddition_Halts n m LEn LEm) as [t' SS].
+  intros n m.
+  destruct (UnaryAddition_Halts n m) as [t' SS].
   replace (Blank :: nil, build_list GT (n + m) Mark ++ Blank :: Blank :: nil) with t'.
   auto.
   apply UnaryAddition_1st_to_last with (a:=n + m) in SS.
   simpl in SS.
   destruct t' as [t_before t_after].
-  destruct SS as [EQb [EQa LE]].
+  destruct SS as [EQb EQa].
   subst. auto.
 
   simpl.
