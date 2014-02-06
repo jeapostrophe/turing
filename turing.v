@@ -89,11 +89,11 @@ Proof.
 Qed.
 
 Inductive QT : Set :=
-| ConsumeFirstNumber : QT
+|  ConsumeFirstNumber : QT
 | ConsumeSecondNumber : QT
-| OverrideLastMark : QT
-| SeekBeginning : QT
-| HALT : QT.
+|    OverrideLastMark : QT
+|       SeekBeginning : QT
+|                HALT : QT.
 Hint Constructors QT.
 
 Definition QT_dec : forall (x y:QT), { x = y } + { x <> y }.
@@ -110,8 +110,8 @@ Lemma Q_ne : Q <> nil.
 Proof. intros F. inversion F. Qed.
 
 Inductive GT : Set :=
-| Mark : GT
-| Add : GT
+|  Mark : GT
+|   Add : GT
 | Blank : GT.
 Hint Constructors GT.
 
@@ -212,9 +212,6 @@ Proof.
   congruence.
 Defined.
 
-Eval compute in (Step_step ConsumeFirstNumber 
-                           (tape_input GT (Mark :: Add :: Mark :: nil))).
-
 Lemma Step_F_done :
   forall q t q' t',
     In q F ->
@@ -253,16 +250,6 @@ Proof.
   apply H.
   auto.
 Qed.
-
-Ltac gteq r :=
-  destruct (GT_dec r r) as [GOOD|BAD]; [ clear GOOD | congruence ].
-Ltac gtneq x y :=
-  destruct (GT_dec x y) as [BAD|GOOD]; [ inversion BAD | clear GOOD ].
-Ltac gt_all :=
-  gteq Mark; gteq Add; gteq Blank;
-  gtneq Mark Add; gtneq Mark Blank;
-  gtneq Blank Add; gtneq Blank Mark;
-  gtneq Add Blank; gtneq Add Mark.
 
 Fixpoint build_list A n (a:A) :=
 match n with
@@ -310,99 +297,6 @@ match q with
        t_before = Blank :: nil
     /\ t_after = (build_list GT n Mark) ++ Blank :: Blank :: nil
 end.
-
-Lemma cons_build_list:
-  forall A n x,
-    x :: (build_list A n x) = (build_list A (S n) x).
-Proof.
-  induction n as [|n]; simpl; intros x.
-  auto.
-  rewrite IHn. auto.
-Qed.
-
-Lemma build_list_snoc:
-  forall A n x,
-    (build_list A n x) ++ (x :: nil) = (build_list A (S n) x).
-Proof.
-  induction n as [|n]; simpl; intros x.
-  auto.
-  rewrite IHn. auto.
-Qed.
-
-Lemma build_list_rev:
-  forall A n x,
-    rev (build_list A n x) = (build_list A n x).
-Proof.
-  induction n as [|n]; intros x.
-  auto.
-  simpl. rewrite IHn.
-  apply build_list_snoc.
-Qed.
-
-Lemma build_list_app:
-  forall A n m x,
-    (build_list A n x) ++ (build_list A m x) = (build_list A (n + m) x).
-Proof.
-  induction n as [|n]; simpl; intros m x.
-  auto.
-  rewrite IHn. auto.
-Qed.
-
-Lemma rev_eq_eq:
-  forall A (x:list A) y,
-    rev x = rev y ->
-    x = y.
-Proof.
-  induction x as [|x xs]; simpl.
-
-  induction y as [|y ys]; simpl; intros EQ.
-  auto.
-  apply app_cons_not_nil in EQ.
-  tauto.
-
-  intros y EQ.
-  destruct y as [|y ys]; simpl in *.
-  symmetry in EQ.
-  apply app_cons_not_nil in EQ.
-  tauto.
-  apply app_inj_tail in EQ.
-  destruct EQ as [EQ0 EQ1].
-  subst y.
-  erewrite IHxs; auto.
-Qed.
-
-Lemma In_not_eq:
-  forall A (a:A) x y,
-    x = y ->
-    In a x ->
-    ~ In a y ->
-    False.
-Proof.
-  induction x as [|x]; simpl; intros y EQ IN NIN.
-  auto.
-  subst y. 
-  destruct IN as [EQ|IN].
-  subst a.
-  apply NIN. simpl. auto.
-  eapply IHx.
-  reflexivity.
-  auto.
-  intros F.
-  apply NIN.
-  simpl. auto.
-Qed.
-
-Lemma build_list_not_In:
-  forall A n x y,
-    x <> y ->
-    ~ In x (build_list A n y).
-Proof.
-  induction n as [|n]; simpl; intros x y NEQ.
-  tauto.
-  intros [ EQ | IN ].
-  subst y. tauto.
-  eapply IHn. apply NEQ. apply IN.
-Qed.
 
 Theorem Step_Impl :
   forall q t q' t',
@@ -607,10 +501,8 @@ Proof.
   generalize r. clear r.
   induction l as [|l]; simpl; intros r.
 
-  induction r as [|r]; simpl.
-  eexists. once. simpl. once. apply Step_star_refl.
-
-  eexists. once. simpl. once. simpl. apply Step_star_refl.
+  destruct r as [|r]; simpl;
+  eexists; once; simpl; once; simpl; apply Step_star_refl.
 
   destruct (IHl (S r)) as [t' SS].
   eexists. once. simpl. apply SS.
