@@ -1,5 +1,7 @@
 Require Import List Omega.
 
+Definition eq_dec A := forall (x y:A), { x = y } + { x <> y }.
+
 Inductive Direction : Set :=
 | DirL : Direction
 | DirR : Direction.
@@ -7,9 +9,6 @@ Hint Constructors Direction.
 
 Definition Tape (A:Type) : Type := ((list A) * (list A))%type.
 Definition tape_input A (l:list A) : (Tape A) := (nil, l).
-Definition tape_list A (t:Tape A) : (list A) :=
-  let (t_before, t_after) := t in
-  (rev t_before) ++ t_after.
 Definition tape_hd A (b:A) (t:Tape A) :=
   let (t_before, t_after) := t in
   match t_after with
@@ -18,40 +17,120 @@ Definition tape_hd A (b:A) (t:Tape A) :=
     | a :: _ =>
       a
   end.
-Definition tape_write A (b:A) (g:A) (D:Direction) (t:Tape A) :=
+
+Definition bcons A (A_dec:eq_dec A) (b:A) (g:A) (l:list A) :=
+  if A_dec b g then
+    match l with
+      | nil => nil
+      | _ => cons g l
+    end
+  else
+    cons g l.
+
+Fixpoint blist A (A_dec:eq_dec A) (b:A) (l:list A) :=
+  match l with
+    | nil => 
+      nil
+    | cons g l =>
+      let l' := blist A A_dec b l in
+      bcons A A_dec b g l'
+  end.
+
+Definition tape_write A (A_dec:eq_dec A) (b:A) (g:A) (D:Direction) (t:Tape A) :=
+  let Bcons := bcons A A_dec b in
+  let Blist := blist A A_dec b in
   let (t_before, t_after) := t in
   let t_after' := 
       match t_after with
         | nil =>
-          cons g nil
+          Bcons g nil
         | cons h t =>
-          cons g t
+          Bcons g t
       end
   in
   match D with
     | DirL =>
       match t_before with
         | nil =>
-          ( nil, cons b t_after' )
+          ( nil, Bcons b t_after' )
         | cons t_b t_bs =>
-          ( t_bs, cons t_b t_after' )
+          ( Blist t_bs, Bcons t_b t_after' )
       end
     | DirR =>
       match t_after' with
         | nil =>
-          ( cons b t_before, nil )
+          ( Bcons b t_before, nil )
         | cons t_a t_as =>
-          ( cons t_a t_before, t_as )
+          ( Bcons t_a t_before, Blist t_as )
       end
   end.
 
-Example tape_write0: 
-  (tape_write nat 0 1 DirL (tape_input nat nil)) = ( nil, 0 :: 1 :: nil ).
-Proof. auto. Qed.
+Inductive ListNoBlankSuffix (A:Set) (b:A) : (list A) -> Prop :=
+| LNBS_nil :
+    ListNoBlankSuffix A b nil
+| LNBS_cons_neq :
+    forall l g,
+      ListNoBlankSuffix A b l ->
+      g <> b ->
+      ListNoBlankSuffix A b (g::l)
+| LNBS_cons_eq :
+    forall l g,
+      ListNoBlankSuffix A b (g::l) ->
+      ListNoBlankSuffix A b (b::(g::l)).
+Hint Constructors ListNoBlankSuffix.
 
-Example tape_write1: 
-  (tape_write nat 0 1 DirR (tape_input nat nil)) = ( 1:: nil, nil ).
-Proof. auto. Qed.
+Lemma bcons_nbs:
+  forall A A_dec b g l,
+    ListNoBlankSuffix A b l ->
+    ListNoBlankSuffix A b (bcons A A_dec b g l).
+Proof.
+  intros A A_dec b g l LNBS. unfold bcons.
+  destruct (A_dec b g) as [EQ|NEQ]. subst g.
+  destruct l as [|g' l]; auto.
+  auto.
+Qed.
+Hint Resolve bcons_nbs.
+
+Lemma blist_nbs:
+  forall A A_dec b l,
+    ListNoBlankSuffix A b (blist A A_dec b l).
+Proof.
+  induction l as [|g l]; simpl; auto.
+Qed.
+Hint Resolve blist_nbs.
+
+Definition TapeNoBlankSuffix (A:Set) (b:A) (t:Tape A) :=
+  let (t_before, t_after) := t in
+  ListNoBlankSuffix A b t_before /\ ListNoBlankSuffix A b t_after.
+
+Theorem tape_write_nbs:
+  forall A A_dec b g D t,
+    TapeNoBlankSuffix A b t ->
+    TapeNoBlankSuffix A b (tape_write A A_dec b g D t).
+Proof.
+  intros A A_dec b.
+  intros g D t.
+
+  destruct t as [tb ta].
+  unfold TapeNoBlankSuffix.
+  simpl.
+  destruct D; destruct tb as [|tbh tbt]; destruct ta as [|tah tat];
+  intros [LNBSb LNBSa].
+
+  intuition.
+  split; auto.
+  apply bcons_nbs. apply bcons_nbs.
+  inversion LNBSa; auto.
+  intuition.
+  intuition.
+  apply bcons_nbs. apply bcons_nbs.
+  inversion LNBSa; auto.
+  
+  destruct (bcons A A_dec b g nil) as [|bh bt]; auto.
+  destruct (bcons A A_dec b g tat) as [|bh bt]; auto.
+  destruct (bcons A A_dec b g nil) as [|bh bt]; auto.
+  destruct (bcons A A_dec b g tat) as [|bh bt]; auto.
+Qed.
 
 Fixpoint subtract A A_dec (l:list A) (from:list A) :=
   match l with
@@ -169,7 +248,7 @@ Inductive Step : QT -> (Tape GT) -> QT -> (Tape GT) -> Prop :=
 | Step_delta :
     forall q q' g' d t,
       delta q (tape_hd GT b t) = Some (q', g', d) ->
-      Step q t q' (tape_write GT b g' d t).
+      Step q t q' (tape_write GT GT_dec b g' d t).
 Hint Constructors Step.
 
 Theorem Step_step :
@@ -182,7 +261,7 @@ Proof.
   remember (delta q (tape_hd GT b t)) as del.
   symmetry in Heqdel.
   destruct del as [[[q' g'] d]|].
-  left. exists (q', (tape_write GT b g' d t)). simpl. auto.
+  left. exists (q', (tape_write GT GT_dec b g' d t)). simpl. auto.
   right. intros q' t' Rqt.
   inversion Rqt.
   congruence.
@@ -227,6 +306,20 @@ Proof.
   auto.
 Qed.
 
+Lemma blist_nin:
+  forall A A_dec b l,
+    ~ In b l ->
+    blist A A_dec b l = l.
+Proof.
+  induction l as [|g l]; simpl; intros NIN.
+  auto.
+  unfold bcons. destruct (A_dec b0 g) as [EQ|NEQ].
+  subst b0.
+  assert False; tauto.
+  rewrite IHl; tauto.
+Qed.
+Hint Resolve blist_nin.
+
 Fixpoint build_list A n (a:A) :=
 match n with
   | O =>
@@ -234,6 +327,47 @@ match n with
   | S n =>
     cons a (build_list A n a)
 end.
+
+Lemma build_list_nin:
+  forall A x y,
+    x <> y ->
+    forall n,
+      ~ In x (build_list A n y).
+Proof.
+  induction n as [|n]; simpl.
+  auto.
+  intros [F|F].
+  symmetry in F. auto.
+  auto.
+Qed.
+Hint Resolve build_list_nin.
+
+Lemma blist_bl:
+  forall A A_dec b g n,
+    b <> g ->
+    blist A A_dec b (build_list A n g) = (build_list A n g).
+Proof.
+  auto.
+Qed.
+
+Lemma blist_blaca:
+  forall A A_dec b g g' n m,
+    b <> g ->
+    b <> g' ->
+    blist A A_dec b ((build_list A n g) ++ g' :: (build_list A m g)) =
+    ((build_list A n g) ++ g' :: (build_list A m g)).
+Proof.
+  intros A A_dec b g g' n m NEQg NEQg'.
+  apply blist_nin.
+  intros F.
+  apply in_app_or in F.
+  destruct F as [F|F].
+  apply (build_list_nin A b g NEQg n F).
+  simpl in F.
+  destruct F as [F|F].
+  auto.
+  apply (build_list_nin A b g NEQg m F).
+Qed.
 
 Definition Pre (q:QT) : Tape GT -> nat -> Prop :=
 match q with
@@ -255,23 +389,23 @@ match q with
   fun t n =>
     let (t_before, t_after) := t in
      t_before = (build_list GT n Mark)
-     /\ t_after = (Mark :: Blank :: nil)
+     /\ t_after = (Mark :: nil)
 | SeekBeginning =>
   fun t n =>
     let (t_before, t_after) := t in
     (exists l r,
-      t_before = (build_list GT l Mark)
-      /\ t_after = ((build_list GT r Mark) ++ Blank :: Blank :: nil)
-      /\ n = l + r
-      /\ r >= 1)
+       t_before = (build_list GT l Mark)
+       /\ t_after = (build_list GT r Mark)
+       /\ n = l + r
+       /\ r >= 1)
     \/
     ( t_before = nil
-      /\ t_after = Blank :: ((build_list GT n Mark) ++ Blank :: Blank :: nil))
+      /\ t_after = bcons GT GT_dec b Blank (build_list GT n Mark) )
 | HALT =>
   fun t n =>
     let (t_before, t_after) := t in
-       t_before = Blank :: nil
-    /\ t_after = (build_list GT n Mark) ++ Blank :: Blank :: nil
+       t_before = nil
+    /\ t_after = (build_list GT n Mark)
 end.
 
 Theorem Step_Impl :
@@ -287,7 +421,7 @@ Proof.
   remember (tape_hd GT b t) as g.
   unfold delta in EQdel.
   destruct q; destruct g; simpl in EQdel; inversion EQdel; subst;
-  simpl in *; clear EQdel.
+  simpl in *; clear EQdel; unfold b in *.
 
   (* Case 1: ConsumeFirst -> ConsumeFirst *)
   destruct t as [t_before t_after].
@@ -297,6 +431,7 @@ Proof.
   destruct la as [|la]; simpl in *. inversion Heqg.
   exists (S lb). exists la. exists r.
   simpl. intuition.
+  rewrite blist_blaca; auto. congruence. congruence.
 
   (* Case 2: ConsumeFirst -> ConsumeSecond  *)
   destruct t as [t_before t_after].
@@ -307,6 +442,8 @@ Proof.
   exists (S lb). exists r. simpl.
   intuition.
 
+  rewrite blist_bl. auto. congruence.
+
   (* Case 3: ConsumeSecond -> ConsumeSecond *)
   destruct t as [t_before t_after].
   destruct Pqt as [nb [na [EQb [EQa EQn]]]].
@@ -314,6 +451,7 @@ Proof.
   destruct na as [|na]; simpl in *. inversion Heqg.
   exists (S nb). exists na.
   simpl. intuition.
+  rewrite blist_bl. auto. congruence.
 
   (* Case 4: ConsumeSecond -> OverrideLast *)
   destruct t as [t_before t_after].  
@@ -324,40 +462,45 @@ Proof.
   omega.
   inversion EQn. subst.
   rewrite plus_0_r. intuition.
+  rewrite blist_bl. auto. congruence.
   congruence.
   
   (* Case 5: OverrideLast -> SeekBeginning *)
   destruct t as [t_before t_after].
   destruct Pqt as [EQb EQa].
   subst t_before t_after. simpl in *. clear Heqg.
-  destruct a as [|a]; simpl in *.
+  destruct a as [|a]; unfold bcons; simpl in *.
 
   right. auto.
 
   left. exists a. exists 1. simpl.
-  intuition; omega.
+  rewrite blist_bl; [|congruence]. intuition.
 
   (* Case 6: SeekBeginning -> SeekBeginning *)
   destruct t as [t_before t_after].
-  destruct Pqt as [[l [r [EQb [EQa [EQn LEa]]]]] | [EQb EQa]];
-    subst t_before t_after;
+  destruct Pqt as [[l [r [EQb [EQa [EQn LEr]]]]]|[EQb EQa]];
+    subst t_before t_after; unfold bcons;
     simpl in *.
 
-  destruct r as [|r]; simpl in *.
-  omega.
-
+  destruct r as [|r]; simpl in *. congruence.
   destruct l as [|l]; simpl in *.
-  
+
+  unfold bcons. simpl.
   right. subst a. simpl. intuition.
 
   left. exists l. exists (S (S r)). simpl. intuition.
+  rewrite blist_bl; congruence.
 
+  destruct a as [|a]; unfold bcons in *; simpl in *;
   inversion Heqg.
 
   (* Case 7: SeekBeginning -> HALT *)
   destruct t as [t_before t_after].  
-  destruct Pqt as [[l [r [EQb [EQa [EQn LEa]]]]] | [EQb EQa]].
+  destruct Pqt as [[l [r [EQb [EQa [EQn LEr]]]]] | [EQb EQa]].
+
   subst a t_before t_after.
+  simpl in *.
+
   destruct r as [|r]; simpl in *.
 
   omega.
@@ -365,7 +508,10 @@ Proof.
 
   subst t_before t_after.
   simpl in *.
+  destruct a as [|a]; unfold bcons in *; simpl in *.
   auto.
+
+  unfold bcons. simpl. rewrite blist_bl. auto. congruence.
 Qed.
 
 Lemma Step_star_impl:
@@ -436,7 +582,10 @@ Proof.
   eexists. once. apply Step_star_refl.
 
   destruct (IHla (S lb) r) as [t' SS].
-  eexists. simpl in *. once. simpl. apply SS.
+  eexists. simpl in *. once. simpl. 
+  unfold bcons. simpl. unfold b.
+  rewrite blist_blaca; try congruence.
+  apply SS.
 Qed.
 
 Lemma UnaryAddition_Halts_2:
@@ -453,7 +602,10 @@ Proof.
 
   destruct (IHna a (S nb)) as [t' SS].
   omega. simpl in SS.
-  eexists. once. simpl. apply SS.
+  eexists. once. simpl.
+  unfold bcons, b. simpl. 
+  rewrite blist_bl; try congruence.
+  apply SS.
 Qed.
 
 Lemma UnaryAddition_Halts_3:
@@ -481,9 +633,16 @@ Proof.
   eexists; once; simpl; once; simpl; apply Step_star_refl.
 
   destruct (IHl (S r)) as [t' SS].
-  eexists. once. simpl. apply SS.
+  eexists. once. simpl. 
+  unfold bcons, b. simpl.
+  rewrite blist_bl; try congruence.
+  apply SS.
 
-  eexists. once. simpl. apply Step_star_refl.
+  unfold bcons, b. simpl.
+  destruct a as [|a]; simpl.
+
+  eexists. once. apply Step_star_refl.
+  eexists. once. apply Step_star_refl.
 Qed.
 
 Lemma UnaryAddition_Halts:
@@ -516,7 +675,7 @@ Theorem UnaryAddition_Correct:
       ConsumeFirstNumber 
       (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
       HALT
-      (Blank :: nil, ((build_list GT (n + m) Mark) ++ Blank :: Blank :: nil)).
+      (tape_input GT (build_list GT (n + m) Mark)).
 Proof.
   intros n m.
   assert (Pre ConsumeFirstNumber (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark))) (n + m)) as P.
@@ -525,7 +684,7 @@ Proof.
   intuition.
 
   destruct (UnaryAddition_Halts _ _ P) as [t' SS].
-  replace (Blank :: nil, build_list GT (n + m) Mark ++ Blank :: Blank :: nil) with t'.
+  replace (tape_input GT (build_list GT (n + m) Mark)) with t'.
   auto.
   apply UnaryAddition_1st_to_last with (a:=n + m) in SS.
   simpl in SS.
