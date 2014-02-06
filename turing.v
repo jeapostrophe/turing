@@ -97,7 +97,7 @@ Inductive QT : Set :=
 Hint Constructors QT.
 
 Definition QT_dec : forall (x y:QT), { x = y } + { x <> y }.
-Proof. decide equality. Qed.
+Proof. decide equality. Defined.
 
 Definition Q :=
   (ConsumeFirstNumber
@@ -116,7 +116,7 @@ Inductive GT : Set :=
 Hint Constructors GT.
 
 Definition GT_dec : forall (x y:GT), { x = y } + { x <> y }.
-Proof. decide equality. Qed.
+Proof. decide equality. Defined.
 
 Definition G := ( Mark :: Add :: Blank :: nil ).
 Lemma G_ne : G <> nil.
@@ -129,13 +129,8 @@ Proof. simpl. auto. Qed.
 Definition TM_S := ( Mark :: Add :: nil ).
 Lemma S_subset : incl TM_S (remove GT_dec b G).
 Proof.
-  simpl. unfold b. unfold TM_S.
-  Ltac dgd r :=
-    destruct (GT_dec Blank r) as [BAD|GOOD]; [ inversion BAD | clear GOOD ].
-  dgd Mark.
-  dgd Add.
-  destruct (GT_dec Blank Blank) as [GOOD|BAD]. apply incl_refl.
-  tauto.
+  simpl. unfold TM_S.
+  apply incl_refl.
 Qed.
 
 Definition q0 := ConsumeFirstNumber.
@@ -146,24 +141,6 @@ Definition F := ( HALT :: nil ).
 Lemma F_subset : incl F Q.
 Proof. unfold F, Q. unfold incl. simpl. auto. Qed.
 Definition Q_delta := (subtract QT QT_dec F Q).
-Lemma Q_delta_eq :
-  Q_delta =
-  (ConsumeFirstNumber
-     :: ConsumeSecondNumber
-     :: OverrideLastMark
-     :: SeekBeginning
-     :: nil).
-Proof.
-  unfold Q_delta, Q, F. simpl.
-
-  Ltac dqd r :=
-    destruct (QT_dec HALT r) as [BAD|GOOD]; [ inversion BAD | clear GOOD ].
-  dqd ConsumeFirstNumber.
-  dqd ConsumeSecondNumber.
-  dqd SeekBeginning.
-  dqd OverrideLastMark.
-  destruct (QT_dec HALT HALT) as [GOOD|BAD]; tauto.
-Qed.
 
 Definition delta q g :=
   match (q, g) with
@@ -184,8 +161,7 @@ Lemma delta_subset :
       /\ In q' Q
       /\ In g' G ).
 Proof.
-  intros q g q' g' d.
-  rewrite Q_delta_eq. unfold delta.
+  intros q g q' g' d. simpl. unfold delta.
   destruct q; destruct g; simpl; intros H; inversion_clear H; tauto.
 Qed.
 
