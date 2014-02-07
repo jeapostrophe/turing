@@ -281,25 +281,26 @@ Proof.
   eapply subtract_In. apply INq. auto.
 Qed.
 
-Inductive Step_star : QT -> (Tape GT) -> QT -> (Tape GT) -> Prop :=
+Inductive Step_star : QT -> (Tape GT) -> nat -> QT -> (Tape GT) -> Prop :=
 | Step_star_refl :
     forall q t,
-      Step_star q t q t
+      Step_star q t 0 q t
 | Step_star_step :
-    forall q t q' t' q'' t'',
+    forall q t q' t' n q'' t'',
       Step q t q' t' ->
-      Step_star q' t' q'' t'' ->
-      Step_star q t q'' t''.
+      Step_star q' t' n q'' t'' ->
+      Step_star q t (S n) q'' t''.
 Hint Constructors Step_star.
 
 Theorem Step_star_trans:
-    forall q t q' t' q'' t'',
-      Step_star q t q' t' ->
-      Step_star q' t' q'' t'' ->
-      Step_star q t q'' t''.
+    forall q t n q' t' m q'' t'',
+      Step_star q t n q' t' ->
+      Step_star q' t' m q'' t'' ->
+      Step_star q t (n+m) q'' t''.
 Proof.
-  intros q t q' t' q'' t'' SSq SSq'.
-  induction SSq.
+  intros q t n q' t' m q'' t'' SSq.
+  generalize m q'' t''. clear m q'' t''.
+  induction SSq; intros m _q'' _t'' SSq'; simpl.
   auto.
   eapply Step_star_step.
   apply H.
@@ -515,13 +516,13 @@ Proof.
 Qed.
 
 Lemma Step_star_impl:
-  forall q t q'' t'',
-    Step_star q t q'' t'' ->
+  forall q t n q'' t'',
+    Step_star q t n q'' t'' ->
     forall a,
       (Pre q) t a ->
       (Pre q'') t'' a.
 Proof.
-  intros q t q'' t'' R_star_qt.
+  intros q t n q'' t'' R_star_qt.
   induction R_star_qt.
   eauto.
   rename H into Rqt.
@@ -536,26 +537,27 @@ Theorem Correct :
     (Pre q0) t a ->
     forall qf,
       In qf F ->
-      forall t',
-        Step_star q0 t qf t' ->
+      forall n t',
+        Step_star q0 t n qf t' ->
         (Pre qf) t' a.
 Proof.
-  intros t a Pq0 qf INqf t' Rs_q0.
+  intros t a Pq0 qf INqf n t' Rs_q0.
   eapply Step_star_impl. apply Rs_q0.
   apply Pq0.
 Qed.
 
 Corollary UnaryAddition_1st_to_last:
-  forall t a t',
+  forall t a,
     (Pre ConsumeFirstNumber) t a ->
-    Step_star ConsumeFirstNumber t HALT t' ->
-    (Pre HALT) t' a.
+    forall n t',
+      Step_star ConsumeFirstNumber t n HALT t' ->
+      (Pre HALT) t' a.
 Proof.
-  intros t a t' P SS.
+  intros t a P n t' SS.
   eapply Correct.
   apply P.
   unfold F. simpl. auto.
-  auto.
+  apply SS.
 Qed.
   
 Ltac once :=
@@ -566,8 +568,8 @@ Ltac run :=
 Definition Pre_impl_Next q q' :=
   forall a t,
     Pre q t a ->
-    exists t',
-      Step_star q t q' t'.
+    exists n t',
+      Step_star q t n q' t'.
 Hint Unfold Pre_impl_Next.
 
 Lemma UnaryAddition_Halts_1:
@@ -579,10 +581,10 @@ Proof.
   subst. generalize lb r. clear lb r.
   induction la as [|la]; intros lb r; simpl.
 
-  eexists. once. apply Step_star_refl.
+  eexists. eexists. once. apply Step_star_refl.
 
-  destruct (IHla (S lb) r) as [t' SS].
-  eexists. simpl in *. once. simpl. 
+  destruct (IHla (S lb) r) as [n [t' SS]].
+  eexists. eexists. simpl in *. once. simpl. 
   unfold bcons. simpl. unfold b.
   rewrite blist_blaca; try congruence.
   apply SS.
@@ -598,11 +600,11 @@ Proof.
   generalize a nb EQn. clear a nb EQn.
   induction na as [|na]; simpl; intros a nb EQn.
 
-  eexists. once. apply Step_star_refl.
+  eexists. eexists. once. apply Step_star_refl.
 
-  destruct (IHna a (S nb)) as [t' SS].
+  destruct (IHna a (S nb)) as [n [t' SS]].
   omega. simpl in SS.
-  eexists. once. simpl.
+  eexists. eexists. once. simpl.
   unfold bcons, b. simpl. 
   rewrite blist_bl; try congruence.
   apply SS.
@@ -614,7 +616,7 @@ Proof.
   intros a t P. simpl in P.
   destruct t as [t_before t_after].
   destruct P as [EQb EQa]. subst.
-  eexists. once. apply Step_star_refl.
+  eexists. eexists. once. apply Step_star_refl.
 Qed.
 
 Lemma UnaryAddition_Halts_4:
@@ -630,10 +632,10 @@ Proof.
   induction l as [|l]; simpl; intros r.
 
   destruct r as [|r]; simpl;
-  eexists; once; simpl; once; simpl; apply Step_star_refl.
+  eexists; eexists; once; simpl; once; simpl; apply Step_star_refl.
 
-  destruct (IHl (S r)) as [t' SS].
-  eexists. once. simpl. 
+  destruct (IHl (S r)) as [n [t' SS]].
+  eexists. eexists. once. simpl. 
   unfold bcons, b. simpl.
   rewrite blist_bl; try congruence.
   apply SS.
@@ -641,28 +643,28 @@ Proof.
   unfold bcons, b. simpl.
   destruct a as [|a]; simpl.
 
-  eexists. once. apply Step_star_refl.
-  eexists. once. apply Step_star_refl.
+  eexists. eexists. once. apply Step_star_refl.
+  eexists. eexists. once. apply Step_star_refl.
 Qed.
 
 Lemma UnaryAddition_Halts:
   forall a t,
     Pre ConsumeFirstNumber t a ->
-    exists t',
-      Step_star ConsumeFirstNumber t HALT t'.
+    exists n t',
+      Step_star ConsumeFirstNumber t n HALT t'.
 Proof.
   intros a t P.
 
-  Ltac UAH_step P t1 SS1 l :=
-    destruct (l _ _ P) as [t1 SS1];
-    apply (Step_star_impl _ _ _ _ SS1) in P.
+  Ltac UAH_step P n1 t1 SS1 l :=
+    destruct (l _ _ P) as [n1 [t1 SS1]];
+    apply (Step_star_impl _ _ _ _ _ SS1) in P.
 
-  UAH_step P t1 SS1 UnaryAddition_Halts_1.
-  UAH_step P t2 SS2 UnaryAddition_Halts_2.
-  UAH_step P t3 SS3 UnaryAddition_Halts_3.
-  UAH_step P t4 SS4 UnaryAddition_Halts_4.
+  UAH_step P n1 t1 SS1 UnaryAddition_Halts_1.
+  UAH_step P n2 t2 SS2 UnaryAddition_Halts_2.
+  UAH_step P n3 t3 SS3 UnaryAddition_Halts_3.
+  UAH_step P n4 t4 SS4 UnaryAddition_Halts_4.
 
-  exists t4.
+  exists (n1 + (n2 + (n3 + n4))). exists t4.
   eapply Step_star_trans. apply SS1.
   eapply Step_star_trans. apply SS2.
   eapply Step_star_trans. apply SS3.
@@ -671,11 +673,13 @@ Qed.
 
 Theorem UnaryAddition_Correct:
   forall n m,
-    Step_star 
-      ConsumeFirstNumber 
-      (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
-      HALT
-      (tape_input GT (build_list GT (n + m) Mark)).
+    exists steps,
+      Step_star 
+        ConsumeFirstNumber 
+        (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
+        steps
+        HALT
+        (tape_input GT (build_list GT (n + m) Mark)).
 Proof.
   intros n m.
   assert (Pre ConsumeFirstNumber (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark))) (n + m)) as P.
@@ -683,9 +687,10 @@ Proof.
   simpl. exists 0. exists n. exists m.
   intuition.
 
-  destruct (UnaryAddition_Halts _ _ P) as [t' SS].
+  destruct (UnaryAddition_Halts _ _ P) as [steps [t' SS]].
+  eexists.
   replace (tape_input GT (build_list GT (n + m) Mark)) with t'.
-  auto.
+  apply SS.
   apply UnaryAddition_1st_to_last with (a:=n + m) in SS.
   simpl in SS.
   destruct t' as [t_before t_after].
