@@ -370,43 +370,48 @@ Proof.
   apply (build_list_nin A b g NEQg m F).
 Qed.
 
-Definition Pre (q:QT) : Tape GT -> nat -> Prop :=
+Definition Pre (q:QT) : Tape GT -> (nat * nat) -> Prop :=
 match q with
 | ConsumeFirstNumber =>
-  fun t n =>
+  fun t nlr =>
+    let (nl, nr) := nlr in
     let (t_before, t_after) := t in
-    exists lb la r,
+    exists lb la,
       t_before = build_list GT lb Mark
-      /\ t_after = build_list GT la Mark ++ (Add :: build_list GT r Mark)
-      /\ n = (lb + la) + r
+      /\ t_after = build_list GT la Mark ++ (Add :: build_list GT nr Mark)
+      /\ nl = (lb + la)
 | ConsumeSecondNumber =>
-  fun t n =>
+  fun t nlr =>
+    let (nl, nr) := nlr in
     let (t_before, t_after) := t in
     exists nb na,
       t_before = build_list GT nb Mark
       /\ t_after = build_list GT na Mark
-      /\ S n = nb + na
+      /\ S (nl + nr) = nb + na
 | OverrideLastMark =>
-  fun t n =>
+  fun t nlr =>
+    let (nl, nr) := nlr in
     let (t_before, t_after) := t in
-     t_before = (build_list GT n Mark)
+     t_before = (build_list GT (nl + nr) Mark)
      /\ t_after = (Mark :: nil)
 | SeekBeginning =>
-  fun t n =>
+  fun t nlr =>
+    let (nl, nr) := nlr in
     let (t_before, t_after) := t in
     (exists l r,
        t_before = (build_list GT l Mark)
        /\ t_after = (build_list GT r Mark)
-       /\ n = l + r
+       /\ nl + nr = l + r
        /\ r >= 1)
     \/
     ( t_before = nil
-      /\ t_after = bcons GT GT_dec b Blank (build_list GT n Mark) )
+      /\ t_after = bcons GT GT_dec b Blank (build_list GT (nl+nr) Mark) )
 | HALT =>
-  fun t n =>
+  fun t nlr =>
+    let (nl, nr) := nlr in
     let (t_before, t_after) := t in
        t_before = nil
-    /\ t_after = (build_list GT n Mark)
+    /\ t_after = (build_list GT (nl + nr) Mark)
 end.
 
 Theorem Step_Impl :
@@ -416,7 +421,7 @@ Theorem Step_Impl :
       (Pre q) t a ->
       (Pre q') t' a.
 Proof.
-  intros q t q' t' Rqt a Pqt.
+  intros q t q' t' Rqt [nl nr] Pqt.
   inversion Rqt. subst.
   rename H into EQdel.
   remember (tape_hd GT b t) as g.
@@ -426,21 +431,21 @@ Proof.
 
   (* Case 1: ConsumeFirst -> ConsumeFirst *)
   destruct t as [t_before t_after].
-  destruct Pqt as [lb [la [r [EQb [EQa EQn]]]]].
-  subst a t_before t_after.
+  destruct Pqt as [lb [la [EQb [EQa EQn]]]].
+  subst nl t_before t_after.
   simpl in *.
   destruct la as [|la]; simpl in *. inversion Heqg.
-  exists (S lb). exists la. exists r.
+  exists (S lb). exists la. 
   simpl. intuition.
   rewrite blist_blaca; auto. congruence. congruence.
 
   (* Case 2: ConsumeFirst -> ConsumeSecond  *)
   destruct t as [t_before t_after].
-  destruct Pqt as [lb [la [r [EQb [EQa EQn]]]]].
-  subst a t_before t_after.
+  destruct Pqt as [lb [la [EQb [EQa EQn]]]].
+  subst nl t_before t_after.
   simpl in *.
   destruct la as [|la]; simpl in *; try (inversion Heqg).
-  exists (S lb). exists r. simpl.
+  exists (S lb). exists nr. simpl.
   intuition.
 
   rewrite blist_bl. auto. congruence.
@@ -461,7 +466,7 @@ Proof.
   destruct na as [|na]; simpl in *.
   destruct nb as [|nb]; simpl in *.
   omega.
-  inversion EQn. subst.
+  inversion EQn. rewrite H0.
   rewrite plus_0_r. intuition.
   rewrite blist_bl. auto. congruence.
   congruence.
@@ -470,6 +475,7 @@ Proof.
   destruct t as [t_before t_after].
   destruct Pqt as [EQb EQa].
   subst t_before t_after. simpl in *. clear Heqg.
+  remember (nl + nr) as a.
   destruct a as [|a]; unfold bcons; simpl in *.
 
   right. auto.
@@ -487,11 +493,12 @@ Proof.
   destruct l as [|l]; simpl in *.
 
   unfold bcons. simpl.
-  right. subst a. simpl. intuition.
+  right. rewrite EQn. simpl. intuition.
 
   left. exists l. exists (S (S r)). simpl. intuition.
   rewrite blist_bl; congruence.
 
+  remember (nl + nr) as a.
   destruct a as [|a]; unfold bcons in *; simpl in *;
   inversion Heqg.
 
@@ -499,7 +506,8 @@ Proof.
   destruct t as [t_before t_after].  
   destruct Pqt as [[l [r [EQb [EQa [EQn LEr]]]]] | [EQb EQa]].
 
-  subst a t_before t_after.
+  rewrite EQn.
+  subst t_before t_after.
   simpl in *.
 
   destruct r as [|r]; simpl in *.
@@ -509,6 +517,7 @@ Proof.
 
   subst t_before t_after.
   simpl in *.
+  remember (nl + nr) as a.
   destruct a as [|a]; unfold bcons in *; simpl in *.
   auto.
 
@@ -575,10 +584,11 @@ Hint Unfold Pre_impl_Next.
 Lemma UnaryAddition_Halts_1:
   Pre_impl_Next ConsumeFirstNumber ConsumeSecondNumber.
 Proof.
-  intros a t P.
-  simpl in P. destruct t as [t_before t_after].
-  destruct P as [lb [la [r [EQb [EQa EQn]]]]].
-  subst. generalize lb r. clear lb r.
+  intros [nl nr] t P.
+  simpl in P. 
+  destruct t as [t_before t_after].
+  destruct P as [lb [la [EQb [EQa EQn]]]].
+  subst. generalize lb nr. clear lb nr.
   induction la as [|la]; intros lb r; simpl.
 
   eexists. eexists. once. apply Step_star_refl.
@@ -593,16 +603,16 @@ Qed.
 Lemma UnaryAddition_Halts_2:
   Pre_impl_Next ConsumeSecondNumber OverrideLastMark.
 Proof.
-  intros a t P. simpl in P.
+  intros [nl nr] t P. simpl in P.
   destruct t as [t_before t_after].
   destruct P as [nb [na [EQb [EQa EQn]]]]. subst.
 
-  generalize a nb EQn. clear a nb EQn.
-  induction na as [|na]; simpl; intros a nb EQn.
+  generalize nl nr nb EQn. clear nl nr nb EQn.
+  induction na as [|na]; simpl; intros nl nr nb EQn.
 
   eexists. eexists. once. apply Step_star_refl.
 
-  destruct (IHna a (S nb)) as [n [t' SS]].
+  destruct (IHna nl nr (S nb)) as [n [t' SS]].
   omega. simpl in SS.
   eexists. eexists. once. simpl.
   unfold bcons, b. simpl. 
@@ -613,7 +623,7 @@ Qed.
 Lemma UnaryAddition_Halts_3:
   Pre_impl_Next OverrideLastMark SeekBeginning.
 Proof.
-  intros a t P. simpl in P.
+  intros [nl nr] t P. simpl in P.
   destruct t as [t_before t_after].
   destruct P as [EQb EQa]. subst.
   eexists. eexists. once. apply Step_star_refl.
@@ -622,25 +632,27 @@ Qed.
 Lemma UnaryAddition_Halts_4:
   Pre_impl_Next SeekBeginning HALT.
 Proof.
-  intros a t P. simpl in P.
+  intros [nl nr] t P. simpl in P.
   destruct t as [t_before t_after].
 
   destruct P as [[l [r [EQb [EQa [EQn LE]]]]] | [EQb EQa]]; subst.
 
   destruct r as [|r]; try omega. clear LE. simpl.
-  generalize r. clear r.
-  induction l as [|l]; simpl; intros r.
+  generalize nl nr r EQn. clear nl nr r EQn.
+  induction l as [|l]; simpl; intros nl nr r EQn.
 
   destruct r as [|r]; simpl;
   eexists; eexists; once; simpl; once; simpl; apply Step_star_refl.
 
-  destruct (IHl (S r)) as [n [t' SS]].
+  destruct (IHl nl nr (S r)) as [n [t' SS]].
+  omega.
   eexists. eexists. once. simpl. 
   unfold bcons, b. simpl.
   rewrite blist_bl; try congruence.
   apply SS.
 
   unfold bcons, b. simpl.
+  remember (nl + nr) as a.
   destruct a as [|a]; simpl.
 
   eexists. eexists. once. apply Step_star_refl.
@@ -682,16 +694,16 @@ Theorem UnaryAddition_Correct:
         (tape_input GT (build_list GT (n + m) Mark)).
 Proof.
   intros n m.
-  assert (Pre ConsumeFirstNumber (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark))) (n + m)) as P.
+  assert (Pre ConsumeFirstNumber (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark))) (n, m)) as P.
 
-  simpl. exists 0. exists n. exists m.
+  simpl. exists 0. exists n.
   intuition.
 
   destruct (UnaryAddition_Halts _ _ P) as [steps [t' SS]].
   eexists.
   replace (tape_input GT (build_list GT (n + m) Mark)) with t'.
   apply SS.
-  apply UnaryAddition_1st_to_last with (a:=n + m) in SS.
+  apply UnaryAddition_1st_to_last with (a:=(n, m)) in SS.
   simpl in SS.
   destruct t' as [t_before t_after].
   destruct SS as [EQb EQa].
