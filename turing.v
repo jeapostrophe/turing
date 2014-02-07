@@ -600,6 +600,26 @@ Proof.
   apply SS.
 Qed.
 
+Lemma UnaryAddition_Time_1:  
+  forall la lb nr,
+    exists t',
+      Step_star ConsumeFirstNumber 
+                ((build_list GT lb Mark),
+                 build_list GT la Mark ++ Add :: build_list GT nr Mark)
+                (S la)
+                ConsumeSecondNumber
+                t'.
+Proof.
+  induction la as [|la]; intros lb nr; simpl in *.
+
+  eexists. once. apply Step_star_refl.
+
+  destruct (IHla (S lb) nr) as [t' SS].
+  eexists. once. simpl in *. unfold bcons, b. simpl.
+  rewrite blist_blaca; try congruence.
+  apply SS.
+Qed.
+
 Lemma UnaryAddition_Halts_2:
   Pre_impl_Next ConsumeSecondNumber OverrideLastMark.
 Proof.
@@ -620,6 +640,25 @@ Proof.
   apply SS.
 Qed.
 
+Lemma UnaryAddition_Time_2:  
+  forall na nb,
+    exists t',
+      Step_star ConsumeSecondNumber 
+                ((build_list GT nb Mark), build_list GT na Mark)
+                (S na)
+                OverrideLastMark
+                t'.
+Proof.
+  induction na as [|na]; intros nb; simpl.
+
+  eexists. once. apply Step_star_refl.
+
+  destruct (IHna (S nb)) as [t' SS].
+  eexists. once. unfold b. simpl. unfold bcons. simpl in *.
+  rewrite blist_bl; try congruence.
+  apply SS.
+Qed.
+
 Lemma UnaryAddition_Halts_3:
   Pre_impl_Next OverrideLastMark SeekBeginning.
 Proof.
@@ -627,6 +666,19 @@ Proof.
   destruct t as [t_before t_after].
   destruct P as [EQb EQa]. subst.
   eexists. eexists. once. apply Step_star_refl.
+Qed.
+
+Lemma UnaryAddition_Time_3:  
+  forall nl nr,
+    exists t',
+      Step_star OverrideLastMark 
+                ((build_list GT (nl + nr) Mark), (Mark :: nil))
+                1
+                SeekBeginning
+                t'.
+Proof.
+  intros nl nr. eexists. once.
+  apply Step_star_refl.
 Qed.
 
 Lemma UnaryAddition_Halts_4:
@@ -659,6 +711,44 @@ Proof.
   eexists. eexists. once. apply Step_star_refl.
 Qed.
 
+Require Import Zerob.
+
+Lemma UnaryAddition_Time_4a:
+  forall l r,
+    exists t',
+      Step_star SeekBeginning 
+                (build_list GT l Mark, build_list GT (S r) Mark)
+                (S (S l))
+                HALT
+                t'.
+Proof.
+  induction l as [|l]; simpl; unfold bcons, b; simpl; intros r.
+
+  eexists. once. once. apply Step_star_refl.
+
+  destruct (IHl (S r)) as [t' SS].
+  eexists. once. simpl. 
+  unfold b.
+  rewrite blist_bl; try congruence.
+  unfold bcons. simpl. 
+  apply SS.
+Qed.
+
+Lemma UnaryAddition_Time_4b:
+  forall n,
+    exists t',
+      Step_star SeekBeginning 
+                (nil, bcons GT GT_dec b Blank (build_list GT n Mark))
+                1
+                HALT
+                t'.
+Proof.
+  destruct n as [|n]; simpl; unfold bcons, b; simpl.
+
+  eexists. once. apply Step_star_refl.
+  eexists. once. apply Step_star_refl.
+Qed.
+
 Lemma UnaryAddition_Halts:
   forall a t,
     Pre ConsumeFirstNumber t a ->
@@ -682,6 +772,73 @@ Proof.
   eapply Step_star_trans. apply SS3.
   apply SS4.
 Qed.
+
+(* XXX This proof breaks because I can't differentiate the "first"
+time the state changes from anywhere in the middle *)
+
+Lemma UnaryAddition_Time:
+  forall l r,
+  exists t',
+    Step_star ConsumeFirstNumber
+              (tape_input GT ((build_list GT l Mark) ++ Add :: (build_list GT r Mark)))
+              (2 * (l + r) + 3)
+              HALT
+              t'.
+Proof.
+  intros l r.
+
+  remember (tape_input GT (build_list GT l Mark ++ Add :: build_list GT r Mark)) as t.
+  destruct t as [tb ta].
+  assert (Pre ConsumeFirstNumber (tb,ta) (l, r)) as P.
+
+  simpl. exists 0. exists l. simpl in *. unfold tape_input in *.
+  inversion Heqt. auto.
+  unfold tape_input in *. inversion Heqt. subst. clear Heqt.
+
+  edestruct (UnaryAddition_Time_1 l 0 r) as [[tb1 ta1] SS1].
+  apply (Step_star_impl _ _ _ _ _ SS1) in P.
+
+  remember P as P'. clear HeqP'.
+  simpl in P'. destruct P' as [nb [na [EQb [EQa EQn]]]].
+  subst.
+  edestruct (UnaryAddition_Time_2 na nb) as [[tb2 ta2] SS2].
+  apply (Step_star_impl _ _ _ _ _ SS2) in P.
+
+  remember P as P'. clear HeqP'.
+  simpl in P'. destruct P' as [EQb EQa].
+  subst.
+  edestruct (UnaryAddition_Time_3 l r) as [[tb3 ta3] SS3].
+  apply (Step_star_impl _ _ _ _ _ SS3) in P.
+
+  remember P as P'. clear HeqP'. clear P.
+  simpl in P'. destruct P' as [[l3 [r3 [EQb [EQa [EQn3 LE]]]]] | [EQb EQa]];
+  subst.
+
+  destruct r3 as [|r3]. omega. clear LE.
+  edestruct (UnaryAddition_Time_4a l3 r3) as [[tb4 ta4] SS4].
+  exists (tb4, ta4).
+  replace (2 * (l + r) + 3) with 
+          ((S l) + ((S na) + (1 + (S (S l3))))).
+  eapply Step_star_trans. apply SS1.
+  eapply Step_star_trans. apply SS2.
+  eapply Step_star_trans. apply SS3.
+  apply SS4.
+
+  clear SS1 SS2 SS3 SS4 tb4 ta4.
+  rewrite EQn3 in EQn. clear EQn3.  
+  
+  Focus 2.
+  edestruct (UnaryAddition_Time_4b (l + r)) as [[tb4 ta4] SS4].
+  exists (tb4, ta4).
+  replace (2 * (l + r) + 3) with 
+          ((S l) + ((S na) + (1 + 1))).
+  eapply Step_star_trans. apply SS1.
+  eapply Step_star_trans. apply SS2.
+  eapply Step_star_trans. apply SS3.
+  apply SS4.
+
+  clear SS1 SS2 SS3 SS4 tb4 ta4.  
+Admitted.
 
 Theorem UnaryAddition_Correct:
   forall n m,
