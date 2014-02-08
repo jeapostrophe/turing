@@ -244,43 +244,6 @@ Proof.
   destruct q; destruct g; simpl; intros H; inversion_clear H; tauto.
 Qed.
 
-Definition delta_next q :=
-  match q with
-    | ConsumeFirstNumber => Some ConsumeSecondNumber
-    | ConsumeSecondNumber => Some OverrideLastMark
-    | OverrideLastMark => Some SeekBeginning
-    | SeekBeginning => Some HALT
-    | HALT => None
-  end.
-Lemma delta_next_some :
-  forall q q',
-    delta_next q = Some q' ->
-    q <> q'.
-Proof.
-  intros q q'. destruct q; simpl; congruence.
-Qed.
-Lemma delta_next_none :
-  forall q,
-    delta_next q = None ->
-    In q F.
-Proof.
-  intros q.
-  destruct q; simpl; intros EQ; try congruence.
-  auto.
-Qed.
-Lemma delta_next_sound:
-  forall q qn,
-    delta_next q = Some qn ->
-    forall g q' g' d,
-      delta q g = Some (q', g', d) ->
-      qn = q'.
-Proof.
-  intros q. destruct q; simpl; intros qn EQ; inversion_clear EQ.
-
-  (* XXX prove something like this but also write delta_loops? *)
-
-Admitted.    
-
 Inductive Step : QT -> (Tape GT) -> QT -> (Tape GT) -> Prop :=
 | Step_delta :
     forall q q' g' d t,
@@ -630,17 +593,22 @@ Ltac once :=
 Ltac run :=
   eexists; repeat once; apply Step_star_refl.
 
+Definition delta_next q q' :=
+  (exists g g' d, delta q g = Some (q', g', d) /\ q <> q').
+
+(* XXX generalize this for machines with two nexts? *)
+
 Theorem Step_Post_next :
   forall q t a,
     (Post q) t a ->
     forall q',
-      (* XXX derive this from delta directly? *)
-      delta_next q = Some q' ->
+      delta_next q q' ->
       exists t',
         Step q t q' t'.
 Proof.
-  intros q [tb ta] [nl nr] Pqt q' EQd.
-  destruct q; simpl in *; inversion_clear EQd.
+  intros q [tb ta] [nl nr] Pqt q' [g [g' [d [EQd NEQ]]]].
+  destruct q; destruct g; unfold delta in *; simpl in *;
+  inversion EQd; subst; clear EQd; try congruence.
 
   destruct Pqt; subst.
   eexists. eapply Step_delta. simpl. reflexivity.
@@ -661,29 +629,140 @@ Qed.
 
 (* XXX: Figure out how to specify n on all these *)
 
-(* XXX Maybe have something like delta_loops? *)
+Definition delta_loops q :=
+  (exists g g' d, delta q g = Some (q, g', d)).
 
 Theorem Step_star_Pre_Post :
   forall q t a,
     (Pre q) t a ->
+    delta_loops q ->
     exists n t',
       Step_star q t n q t'
       /\ Post q t' a.
 Proof.
-  intros q [tb ta] [nl nr] Pqt.
-  destruct q; simpl in *.
-Admitted.
+  intros q [tb ta] [nl nr] Pqt [g [g' [d EQd]]].
+  destruct q; destruct g; unfold delta in EQd; simpl in EQd;
+  inversion EQd; subst; clear EQd; try congruence.
+
+  (* First -> First *)
+  apply Pre_impl_Invariant in Pqt.
+  destruct Pqt as [lb [la [[EQb EQa] EQn]]]. subst.
+  generalize nr lb. clear nr lb.
+  induction la as [|la]; intros nr lb.
+  
+  eexists. eexists. split.
+  apply Step_star_refl.
+  simpl. unfold CFN_Tape. rewrite plus_0_r. simpl. auto.
+
+  destruct (IHla nr (S lb)) as [n' [t' [SS P]]].
+  eexists. eexists. split.
+  once. unfold b. simpl. rewrite blist_blaca; try congruence.
+  unfold bcons. simpl. simpl in SS. apply SS.
+  replace (lb + S la) with (S lb + la).
+  auto. omega.
+
+  (* Second -> Second *)
+  apply Pre_impl_Invariant in Pqt.
+  destruct Pqt as [l [r [EQb [EQa EQn]]]]. subst.
+  generalize nl nr l EQn. clear nl nr l EQn.
+  induction r as [|r]; intros nl nr l EQn.
+
+  eexists. eexists. split.
+  apply Step_star_refl. rewrite plus_0_r in EQn. subst l.
+  simpl. auto.
+
+  destruct (IHr nl nr (S l)) as [n' [t' [SS P]]].
+  omega.
+  eexists. eexists. split.
+  simpl. once. unfold b. simpl.
+  rewrite blist_bl; try congruence.
+  unfold bcons. simpl. apply SS.
+  auto.
+
+  (* Seek -> Seek *)
+  assert (Invariant SeekBeginning (tb, ta) (nl, nr)) as Iqt.
+  apply Pre_impl_Invariant. auto.
+  destruct Iqt as [l [r [EQb [EQa EQn]]]].
+  simpl in Pqt. subst. simpl.
+
+  rewrite EQn in *. clear EQn nl nr.
+  remember (l + r) as lr. rename Heqlr into EQlr.
+  destruct lr as [|lr].
+
+  exists 0. exists (nil, nil).
+  replace l with 0; try omega.
+  replace r with 0; try omega.
+  auto.
+
+  destruct r as [|r]; simpl in *.
+  destruct Pqt. congruence.
+  replace lr with (l + r) in *; try omega.
+  clear lr EQlr Pqt.
+
+  generalize r. clear r.
+  induction l as [|l]; simpl; intros r.
+
+  eexists. eexists. split.
+  once. apply Step_star_refl. simpl. auto.
+
+  destruct (IHl (S r)) as [n' [[tb' ta'] [SS [EQb' EQa']]]]. subst.
+  eexists. eexists. split.
+  once. simpl. unfold b in *.
+  rewrite blist_bl; try congruence.
+  unfold bcons in *. simpl in *.
+  apply SS. simpl.
+  replace (l + S r) with (S (l + r)); try omega.
+  simpl. auto.
+Qed.
+
+Theorem Step_star_Pre_Post_neloop :
+  forall q t a,
+    (Pre q) t a ->
+    ~ delta_loops q ->
+    (Post q) t a.
+Proof.
+  intros q t [nl nr] P NDL.
+  unfold delta_loops, Pre, Post, delta in *.
+  destruct q; auto;
+  assert False; try tauto;
+  apply NDL.
+
+  (* First *)
+  exists Mark. eauto.
+
+  (* Second *)
+  exists Mark. eauto.
+
+  (* Seek *)
+  exists Mark. eauto.
+Qed.
+
+Theorem delta_loops_dec:
+  forall q,
+    { delta_loops q } + { ~ delta_loops q }.
+Proof.
+  intros q. unfold delta_loops, delta.
+  destruct q; simpl.
+
+  left. exists Mark. eauto.
+  left. exists Mark. eauto.
+  right. intros [g [g' [d EQ]]]. destruct g; congruence.
+  left. exists Mark. eauto.
+  right. intros [g [g' [d EQ]]]. destruct g; congruence.
+Qed.
 
 Theorem Step_star_Pre_next :
   forall q t a,
     (Pre q) t a ->
     forall q',
-      delta_next q = Some q' ->
+      delta_next q q' ->
       exists n t',
-        Step_star q t n q' t'.
+        Step_star q t n q' t'
+        /\ (Pre q') t' a.
 Proof.
-  intros q [tb ta] [nl nr] Pqt q' EQ.
-  destruct q; simpl in EQ; inversion EQ; subst q'; clear EQ.
+  intros q [tb ta] [nl nr] Pqt q' [g [g' [d [EQd NEQ]]]].
+  destruct q; destruct g; simpl in EQd; inversion EQd; subst; clear EQd;
+  try congruence.
 
   (* First -> Second *)
   apply Pre_impl_Invariant in Pqt.
@@ -691,12 +770,17 @@ Proof.
   generalize nr lb. clear nr lb.
   induction la as [|la]; simpl; intros nr lb.
   
-  eexists. eexists. once. apply Step_star_refl.
+  eexists. eexists. split. once. apply Step_star_refl.
+  simpl. unfold bcons, b. simpl. rewrite plus_0_r.
+  rewrite blist_bl; try congruence. auto.
 
-  destruct (IHla nr (S lb)) as [n' [t' SS]].
+  destruct (IHla nr (S lb)) as [n' [t' [SS P]]].
   eexists (S n'). exists t'.
-  once. unfold b. simpl. rewrite blist_blaca; try congruence.
+  split. once. unfold b. simpl. rewrite blist_blaca; try congruence.
   simpl in SS. apply SS.
+  simpl in P. destruct t' as [tb' ta'].
+  replace (lb + S la) with (S (lb + la)); try omega.
+  simpl. auto.
 
   (* Second -> Override *)
   apply Pre_impl_Invariant in Pqt.
@@ -704,17 +788,26 @@ Proof.
   generalize nl nr l EQn. clear nl nr l EQn.
   induction r as [|r]; simpl; intros nl nr l EQn.
   
-  eexists. eexists. once. apply Step_star_refl.
+  eexists. eexists. split. once. apply Step_star_refl.
+  rewrite plus_0_r in EQn. subst l.
+  simpl. unfold b, bcons. 
+  rewrite blist_bl; try congruence.
+  simpl. auto.
 
-  destruct (IHr nl nr (S l)) as [n' [t' SS]].
+  destruct (IHr nl nr (S l)) as [n' [t' [SS P]]].
   omega.
   eexists (S n'). exists t'.
-  once. unfold b. simpl. rewrite blist_bl; try congruence.
+  split. once. unfold b. simpl. rewrite blist_bl; try congruence.
   simpl in SS. apply SS.
+  destruct t' as [tb' ta']. simpl in P.
+  auto.
 
   (* Override -> Seek *)
   destruct Pqt as [EQb EQa]. subst.
-  eexists. eexists. once. apply Step_star_refl.
+  eexists. eexists. split. once. apply Step_star_refl.
+  simpl. unfold b, bcons. simpl.
+  destruct (nl + nr); simpl. auto.
+  rewrite blist_bl; try congruence. auto.
 
   (* Seek -> HALT *)
   apply Step_star_Pre_Post in Pqt.
@@ -726,204 +819,128 @@ Proof.
   destruct n as [|n]; simpl in SS.
 
   eexists. eexists.
-  eapply Step_star_trans.
+  split. eapply Step_star_trans.
   apply SS. once. apply Step_star_refl.
+  simpl. rewrite <- Heqn.
+  unfold bcons, b. simpl. auto.
 
   eexists. eexists.
-  eapply Step_star_trans.
+  split. eapply Step_star_trans.
   apply SS. once. apply Step_star_refl.
+  simpl. rewrite <- Heqn.
+  unfold bcons, b. simpl. 
+  rewrite blist_bl; try congruence. auto.
+
+  unfold delta_loops.
+  exists Mark. eexists. eexists.
+  unfold delta. auto.
 Qed.
 
-Theorem Step_star_Inv_impl_Post :
-  forall q t a,
-    (Pre q) t a ->
-    exists n t',
-      Step_star q t n q t'
-      /\ (Post q) t' a.
-Proof.
-
-(* XXX *)
-
-Theorem Step_Impl :
+Theorem Step_next_or_loop:
   forall q t q' t',
     Step q t q' t' ->
-    forall a,
-      (Pre q) t a ->
-      (Pre q') t' a.
+    ( q <> q' /\ delta_next q q')
+    \/ (q = q' /\ delta_loops q).
 Proof.
-  intros q t q' t' Rqt [nl nr] Pqt.
-  inversion Rqt. subst.
-  rename H into EQdel.
-  remember (tape_hd GT b t) as g.
-  unfold delta in EQdel.
-  destruct q; destruct g; simpl in EQdel; inversion EQdel; subst;
-  simpl in *; clear EQdel; unfold b in *.
+  intros q t q' t' S1.
+  inversion S1. subst.
+  rename H into EQd.
+  unfold delta_next, delta_loops.
+  destruct (QT_dec q q') as [EQ|NEQ].
 
-  (* Case 1: ConsumeFirst -> ConsumeFirst *)
-  destruct t as [t_before t_after].
-  destruct Pqt as [lb [la [EQb [EQa EQn]]]].
-  subst nl t_before t_after.
-  simpl in *.
-  destruct la as [|la]; simpl in *. inversion Heqg.
-  exists (S lb). exists la. 
-  simpl. intuition.
-  rewrite blist_blaca; auto. congruence. congruence.
+  subst. right. eauto. 
 
-  (* Case 2: ConsumeFirst -> ConsumeSecond  *)
-  destruct t as [t_before t_after].
-  destruct Pqt as [lb [la [EQb [EQa EQn]]]].
-  subst nl t_before t_after.
-  simpl in *.
-  destruct la as [|la]; simpl in *; try (inversion Heqg).
-  exists (S lb). exists nr. simpl.
-  intuition.
-
-  rewrite blist_bl. auto. congruence.
-
-  (* Case 3: ConsumeSecond -> ConsumeSecond *)
-  destruct t as [t_before t_after].
-  destruct Pqt as [nb [na [EQb [EQa EQn]]]].
-  subst. simpl in *.
-  destruct na as [|na]; simpl in *. inversion Heqg.
-  exists (S nb). exists na.
-  simpl. intuition.
-  rewrite blist_bl. auto. congruence.
-
-  (* Case 4: ConsumeSecond -> OverrideLast *)
-  destruct t as [t_before t_after].  
-  destruct Pqt as [nb [na [EQb [EQa EQn]]]].
-  subst. simpl in *.
-  destruct na as [|na]; simpl in *.
-  destruct nb as [|nb]; simpl in *.
-  omega.
-  inversion EQn. rewrite H0.
-  rewrite plus_0_r. intuition.
-  rewrite blist_bl. auto. congruence.
-  congruence.
-  
-  (* Case 5: OverrideLast -> SeekBeginning *)
-  destruct t as [t_before t_after].
-  destruct Pqt as [EQb EQa].
-  subst t_before t_after. simpl in *. clear Heqg.
-  remember (nl + nr) as a.
-  destruct a as [|a]; unfold bcons; simpl in *.
-
-  right. auto.
-
-  left. exists a. exists 1. simpl.
-  rewrite blist_bl; [|congruence]. intuition.
-
-  (* Case 6: SeekBeginning -> SeekBeginning *)
-  destruct t as [t_before t_after].
-  destruct Pqt as [[l [r [EQb [EQa [EQn LEr]]]]]|[EQb EQa]];
-    subst t_before t_after; unfold bcons;
-    simpl in *.
-
-  destruct r as [|r]; simpl in *. congruence.
-  destruct l as [|l]; simpl in *.
-
-  unfold bcons. simpl.
-  right. rewrite EQn. simpl. intuition.
-
-  left. exists l. exists (S (S r)). simpl. intuition.
-  rewrite blist_bl; congruence.
-
-  remember (nl + nr) as a.
-  destruct a as [|a]; unfold bcons in *; simpl in *;
-  inversion Heqg.
-
-  (* Case 7: SeekBeginning -> HALT *)
-  destruct t as [t_before t_after].  
-  destruct Pqt as [[l [r [EQb [EQa [EQn LEr]]]]] | [EQb EQa]].
-
-  rewrite EQn.
-  subst t_before t_after.
-  simpl in *.
-
-  destruct r as [|r]; simpl in *.
-
-  omega.
-  inversion Heqg.
-
-  subst t_before t_after.
-  simpl in *.
-  remember (nl + nr) as a.
-  destruct a as [|a]; unfold bcons in *; simpl in *.
+  left. split. auto.
+  exists (tape_hd GT b t). exists g'. exists d.
   auto.
-
-  unfold bcons. simpl. rewrite blist_bl. auto. congruence.
 Qed.
 
-Lemma Step_star_impl:
-  forall q t n q'' t'',
-    Step_star q t n q'' t'' ->
-    forall a,
-      (Pre q) t a ->
-      (Pre q'') t'' a.
+Inductive delta_trans : QT -> QT -> Prop :=
+| dt_refl:
+    forall q,
+      delta_trans q q
+| dt_next:
+    forall q q' q'',
+      delta_next q q' ->
+      delta_trans q' q'' ->
+      delta_trans q q''.
+Hint Constructors delta_trans.
+
+Ltac dt_step g :=
+  eapply dt_next; 
+  [ exists g; eexists; eexists; split; [reflexivity | congruence] |].
+
+
+Theorem Step_star_Pre_trans :
+  forall q t a,
+    (Pre q) t a ->
+    forall q'',
+      delta_trans q q'' ->
+      exists n t'',
+        Step_star q t n q'' t''
+        /\ (Pre q'') t'' a.
 Proof.
-  intros q t n q'' t'' R_star_qt.
-  induction R_star_qt.
-  eauto.
-  rename H into Rqt.
-  intros a Pqt.
-  eapply Step_Impl in Rqt; [|apply Pqt].
-  eapply IHR_star_qt.
-  apply Rqt.
+  intros q t a P q'' DT.
+
+  generalize t P. clear t P.
+  induction DT; intros t P.
+ 
+  exists 0. exists t. auto.
+
+  rename H into DN1.
+
+  destruct (Step_star_Pre_next q t a P q' DN1) as [n1 [t' [SS1 P']]].
+  destruct DN1 as [g [g' [d [EQd NEQ]]]].
+
+  edestruct IHDT as [n2 [t'' [SS2 P'']]].
+  apply P'.
+
+  exists (n1 + n2). exists t''.
+  split. eapply Step_star_trans. apply SS1.
+  apply SS2.
+  auto.
 Qed.
 
-Theorem Correct :
-  forall t a,
-    (Pre q0) t a ->
-    forall qf,
-      In qf F ->
-      forall n t',
-        Step_star q0 t n qf t' ->
-        (Pre qf) t' a.
+Theorem UnaryAddition_Correct:
+  forall n m,
+    exists steps,
+      Step_star 
+        ConsumeFirstNumber 
+        (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
+        steps
+        HALT
+        (tape_input GT (build_list GT (n + m) Mark)).
 Proof.
-  intros t a Pq0 qf INqf n t' Rs_q0.
-  eapply Step_star_impl. apply Rs_q0.
-  apply Pq0.
-Qed.
+  intros n m.
+  remember (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
+    as t.
+  assert (Pre ConsumeFirstNumber t (n, m)) as P.
 
-Corollary UnaryAddition_1st_to_last:
-  forall t a,
-    (Pre ConsumeFirstNumber) t a ->
-    forall n t',
-      Step_star ConsumeFirstNumber t n HALT t' ->
-      (Pre HALT) t' a.
-Proof.
-  intros t a P n t' SS.
-  eapply Correct.
-  apply P.
-  unfold F. simpl. auto.
+  rewrite Heqt. simpl. unfold CFN_Tape. auto.
+
+  edestruct 
+    (Step_star_Pre_trans 
+       ConsumeFirstNumber
+       t
+       (n, m)
+       P
+       HALT) as [steps [t'' [SS PRE]]].
+
+  dt_step Add.
+  dt_step Blank.
+  dt_step Mark.
+  dt_step Blank.
+  apply dt_refl.
+
+  exists steps.
+  simpl in PRE.
+  destruct t'' as [tb ta].
+  unfold tape_input.
+  destruct PRE; subst.
   apply SS.
 Qed.
-  
-Definition Pre_impl_Next q q' :=
-  forall a t,
-    Pre q t a ->
-    exists n t',
-      Step_star q t n q' t'.
-Hint Unfold Pre_impl_Next.
 
-Lemma UnaryAddition_Halts_1:
-  Pre_impl_Next ConsumeFirstNumber ConsumeSecondNumber.
-Proof.
-  intros [nl nr] t P.
-  simpl in P. 
-  destruct t as [t_before t_after].
-  destruct P as [lb [la [EQb [EQa EQn]]]].
-  subst. generalize lb nr. clear lb nr.
-  induction la as [|la]; intros lb r; simpl.
-
-  eexists. eexists. once. apply Step_star_refl.
-
-  destruct (IHla (S lb) r) as [n [t' SS]].
-  eexists. eexists. simpl in *. once. simpl. 
-  unfold bcons. simpl. unfold b.
-  rewrite blist_blaca; try congruence.
-  apply SS.
-Qed.
+(* XXX *)
 
 Lemma UnaryAddition_Time_1:  
   forall la lb nr,
@@ -942,26 +959,6 @@ Proof.
   destruct (IHla (S lb) nr) as [t' SS].
   eexists. once. simpl in *. unfold bcons, b. simpl.
   rewrite blist_blaca; try congruence.
-  apply SS.
-Qed.
-
-Lemma UnaryAddition_Halts_2:
-  Pre_impl_Next ConsumeSecondNumber OverrideLastMark.
-Proof.
-  intros [nl nr] t P. simpl in P.
-  destruct t as [t_before t_after].
-  destruct P as [nb [na [EQb [EQa EQn]]]]. subst.
-
-  generalize nl nr nb EQn. clear nl nr nb EQn.
-  induction na as [|na]; simpl; intros nl nr nb EQn.
-
-  eexists. eexists. once. apply Step_star_refl.
-
-  destruct (IHna nl nr (S nb)) as [n [t' SS]].
-  omega. simpl in SS.
-  eexists. eexists. once. simpl.
-  unfold bcons, b. simpl. 
-  rewrite blist_bl; try congruence.
   apply SS.
 Qed.
 
@@ -984,15 +981,6 @@ Proof.
   apply SS.
 Qed.
 
-Lemma UnaryAddition_Halts_3:
-  Pre_impl_Next OverrideLastMark SeekBeginning.
-Proof.
-  intros [nl nr] t P. simpl in P.
-  destruct t as [t_before t_after].
-  destruct P as [EQb EQa]. subst.
-  eexists. eexists. once. apply Step_star_refl.
-Qed.
-
 Lemma UnaryAddition_Time_3:  
   forall nl nr,
     exists t',
@@ -1004,36 +992,6 @@ Lemma UnaryAddition_Time_3:
 Proof.
   intros nl nr. eexists. once.
   apply Step_star_refl.
-Qed.
-
-Lemma UnaryAddition_Halts_4:
-  Pre_impl_Next SeekBeginning HALT.
-Proof.
-  intros [nl nr] t P. simpl in P.
-  destruct t as [t_before t_after].
-
-  destruct P as [[l [r [EQb [EQa [EQn LE]]]]] | [EQb EQa]]; subst.
-
-  destruct r as [|r]; try omega. clear LE. simpl.
-  generalize nl nr r EQn. clear nl nr r EQn.
-  induction l as [|l]; simpl; intros nl nr r EQn.
-
-  destruct r as [|r]; simpl;
-  eexists; eexists; once; simpl; once; simpl; apply Step_star_refl.
-
-  destruct (IHl nl nr (S r)) as [n [t' SS]].
-  omega.
-  eexists. eexists. once. simpl. 
-  unfold bcons, b. simpl.
-  rewrite blist_bl; try congruence.
-  apply SS.
-
-  unfold bcons, b. simpl.
-  remember (nl + nr) as a.
-  destruct a as [|a]; simpl.
-
-  eexists. eexists. once. apply Step_star_refl.
-  eexists. eexists. once. apply Step_star_refl.
 Qed.
 
 Require Import Zerob.
@@ -1072,30 +1030,6 @@ Proof.
 
   eexists. once. apply Step_star_refl.
   eexists. once. apply Step_star_refl.
-Qed.
-
-Lemma UnaryAddition_Halts:
-  forall a t,
-    Pre ConsumeFirstNumber t a ->
-    exists n t',
-      Step_star ConsumeFirstNumber t n HALT t'.
-Proof.
-  intros a t P.
-
-  Ltac UAH_step P n1 t1 SS1 l :=
-    destruct (l _ _ P) as [n1 [t1 SS1]];
-    apply (Step_star_impl _ _ _ _ _ SS1) in P.
-
-  UAH_step P n1 t1 SS1 UnaryAddition_Halts_1.
-  UAH_step P n2 t2 SS2 UnaryAddition_Halts_2.
-  UAH_step P n3 t3 SS3 UnaryAddition_Halts_3.
-  UAH_step P n4 t4 SS4 UnaryAddition_Halts_4.
-
-  exists (n1 + (n2 + (n3 + n4))). exists t4.
-  eapply Step_star_trans. apply SS1.
-  eapply Step_star_trans. apply SS2.
-  eapply Step_star_trans. apply SS3.
-  apply SS4.
 Qed.
 
 (* XXX This proof breaks because I can't differentiate the "first"
@@ -1164,44 +1098,3 @@ Proof.
 
   clear SS1 SS2 SS3 SS4 tb4 ta4.  
 Admitted.
-
-Theorem UnaryAddition_Correct:
-  forall n m,
-    exists steps,
-      Step_star 
-        ConsumeFirstNumber 
-        (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark)))
-        steps
-        HALT
-        (tape_input GT (build_list GT (n + m) Mark)).
-Proof.
-  intros n m.
-  assert (Pre ConsumeFirstNumber (tape_input GT ((build_list GT n Mark) ++ Add :: (build_list GT m Mark))) (n, m)) as P.
-
-  simpl. exists 0. exists n.
-  intuition.
-
-  destruct (UnaryAddition_Halts _ _ P) as [steps [t' SS]].
-  eexists.
-  replace (tape_input GT (build_list GT (n + m) Mark)) with t'.
-  apply SS.
-  apply UnaryAddition_1st_to_last with (a:=(n, m)) in SS.
-  simpl in SS.
-  destruct t' as [t_before t_after].
-  destruct SS as [EQb EQa].
-  subst. auto.
-  auto.
-Qed.
-
-(* Need to change things so that I have
-
-x  Pre   Invariant   Post
-
-x  Pre q -> Invariant q
-x  q <> q' -> Step q q' -> Post q -> Pre q'
-x  Step q q -> Invariant q -> Invariant q \/ Post q
-o  Invariant q -> Step* q q | Post q
-o  Pre q -> Step* q q' | n = cost
-
-*)
-
